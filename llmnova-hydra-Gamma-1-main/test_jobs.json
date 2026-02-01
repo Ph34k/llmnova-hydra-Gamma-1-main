@@ -108,5 +108,15 @@
         "func_name": "my_job",
         "status": "scheduled",
         "created_at": "2026-02-01T22:16:26.614988"
+    },
+    "0484185c1a8844ee996629cf8e045f13": {
+        "id": "0484185c1a8844ee996629cf8e045f13",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-01T22:34:55.489483"
     }
 }
