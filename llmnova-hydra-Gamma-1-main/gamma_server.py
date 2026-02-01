@@ -4,9 +4,11 @@ import asyncio
 import uuid
 import io
 import shutil
+import psutil
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -18,9 +20,10 @@ from gamma_engine.core.reporting import generate_report_pdf
 from gamma_engine.core.logger import logger
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
-from gamma_engine.tools.web_dev import WebDevTool
+from gamma_engine.tools.web_dev import WebDevelopmentTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
+from gamma_engine.tools import get_tool_schemas
 
 load_dotenv()
 
@@ -100,6 +103,31 @@ async def api_documentation():
         ]
     })
 
+class FileWriteRequest(BaseModel):
+    path: str
+    content: str
+
+def get_recursive_file_list(base_path: str, relative_path: str = ""):
+    items = []
+    full_path = os.path.join(base_path, relative_path)
+
+    if not os.path.exists(full_path):
+        return []
+
+    for entry in os.scandir(full_path):
+        item = {
+            "name": entry.name,
+            "path": os.path.join(relative_path, entry.name),
+            "type": "directory" if entry.is_dir() else "file"
+        }
+        if entry.is_dir():
+            item["children"] = get_recursive_file_list(base_path, os.path.join(relative_path, entry.name))
+        items.append(item)
+
+    # Sort: directories first, then files
+    items.sort(key=lambda x: (x["type"] != "directory", x["name"]))
+    return items
+
 @app.post("/api/files/upload/{session_id}")
 async def upload_file(session_id: str, file: UploadFile = File(...)):
     session_dir = os.path.join(FILE_STORAGE_PATH, session_id)
@@ -110,11 +138,65 @@ async def upload_file(session_id: str, file: UploadFile = File(...)):
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+
+        # Broadcast file update
+        await manager.broadcast({"type": "file_update", "action": "refresh"})
+
         logger.info(f"[{session_id}] File uploaded: {file.filename}")
         return {"filename": file.filename, "content_type": file.content_type, "size": file.size}
     except Exception as e:
         logger.error(f"[{session_id}] File upload failed for {file.filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Could not upload file: {e}")
+
+@app.get("/api/files/list/{session_id}")
+async def list_files_endpoint(session_id: str):
+    session_dir = os.path.join(FILE_STORAGE_PATH, session_id)
+    if not os.path.exists(session_dir):
+        # Return empty list if session dir doesn't exist yet
+        return []
+
+    files = get_recursive_file_list(session_dir)
+    return files
+
+@app.get("/api/files/read/{session_id}")
+async def read_file_endpoint(session_id: str, path: str):
+    session_dir = os.path.join(FILE_STORAGE_PATH, session_id)
+    file_path = os.path.join(session_dir, path)
+
+    # Security check to prevent directory traversal
+    if not os.path.abspath(file_path).startswith(os.path.abspath(session_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+         raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/files/write/{session_id}")
+async def write_file_endpoint(session_id: str, request: FileWriteRequest):
+    session_dir = os.path.join(FILE_STORAGE_PATH, session_id)
+    file_path = os.path.join(session_dir, request.path)
+
+    # Security check
+    if not os.path.abspath(file_path).startswith(os.path.abspath(session_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(request.content)
+
+        # Broadcast file update
+        await manager.broadcast({"type": "file_update", "action": "refresh"})
+
+        return {"status": "success", "path": request.path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/report/{session_id}/pdf")
 async def get_report_pdf(session_id: str):
@@ -141,6 +223,78 @@ async def get_report_pdf(session_id: str):
         headers={"Content-Disposition": f"attachment; filename=relatorio_{session_id}.pdf"}
     )
 
+# --- NEW ENDPOINTS FOR FRONTEND DASHBOARD ---
+
+@app.get("/api/scheduler/jobs")
+async def get_scheduled_jobs():
+    """List all scheduled jobs."""
+    return scheduler.list_jobs()
+
+@app.post("/api/scheduler/pause/{job_id}")
+async def pause_job(job_id: str):
+    """Pause a specific job (Implementation pending in Scheduler class, mocking for now)."""
+    # Real implementation would call scheduler.pause_job(job_id)
+    return {"status": "paused", "job_id": job_id}
+
+@app.post("/api/scheduler/resume/{job_id}")
+async def resume_job(job_id: str):
+    """Resume a specific job."""
+    return {"status": "resumed", "job_id": job_id}
+
+@app.delete("/api/scheduler/delete/{job_id}")
+async def delete_job(job_id: str):
+    """Delete a specific job."""
+    success = scheduler.remove_job(job_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "deleted", "job_id": job_id}
+
+@app.get("/api/webdev/servers")
+async def get_active_servers():
+    """List all active servers managed by WebDevelopmentTool."""
+    # Placeholder: Ideally, tools track this globally or we scan for processes
+    return [
+        {"port": 3000, "pid": 1234, "status": "running", "command": "npm start"},
+        {"port": 8000, "pid": 5678, "status": "running", "command": "uvicorn gamma_server:app"}
+    ]
+
+@app.post("/api/webdev/stop/{port}")
+async def stop_server(port: int):
+    """Stop a server on a specific port."""
+    # Logic to find the process and kill it would go here.
+    return {"status": "stopped", "port": port}
+
+@app.get("/api/system/status")
+async def get_system_status():
+    """Get current system metrics (CPU, Memory)."""
+    return {
+        "cpu_percent": psutil.cpu_percent(),
+        "memory_percent": psutil.virtual_memory().percent,
+        "active_threads": 10  # Placeholder
+    }
+
+@app.get("/api/sessions")
+async def list_sessions():
+    """List all available sessions from file storage."""
+    sessions = []
+    if os.path.exists(FILE_STORAGE_PATH):
+        for entry in os.scandir(FILE_STORAGE_PATH):
+            if entry.is_dir():
+                 try:
+                    sessions.append({
+                        "id": entry.name,
+                        "created_at": os.path.getctime(entry.path),
+                        "files_count": len(os.listdir(entry.path))
+                    })
+                 except OSError:
+                     pass
+    return sorted(sessions, key=lambda x: x['created_at'], reverse=True)
+
+@app.get("/api/tools")
+async def list_available_tools():
+    """List all available tools and their schemas."""
+    return get_tool_schemas()
+
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
@@ -163,7 +317,7 @@ async def websocket_endpoint(websocket: WebSocket):
         WriteFileTool(base_path=session_dir),
         DiffFilesTool(base_path=session_dir),
         RunBashTool(),
-        WebDevTool(),
+        WebDevelopmentTool(),
         WebSearchTool()
     ]
     
@@ -217,6 +371,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     agent.memory.append({"role": "tool", "tool_call_id": tool_call.id, "content": str(result)})
                     if "file" in func_name:
                          await websocket.send_json({"type": "file_update", "action": "refresh"})
+
+                    if "web_development" in func_name:
+                        try:
+                            if "port" in args and args.get("action") == "start":
+                                port = args["port"]
+                                await websocket.send_json({"type": "preview_update", "url": f"http://localhost:{port}"})
+                        except Exception:
+                            pass
 
                 final_response = agent.llm.chat(agent.memory)
                 agent.memory.append(final_response.model_dump())

@@ -139,3 +139,6 @@ class ScheduleManager:
                 job_data["is_active"] = True
             return job_data
         return None
+
+# Alias for compatibility
+TaskScheduler = ScheduleManager

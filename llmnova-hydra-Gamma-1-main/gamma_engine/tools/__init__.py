@@ -17,7 +17,7 @@ Available Tools:
 """
 
 from .base import Tool
-from .browser import BrowserInteractTool, BrowserScreenshotTool, BrowserTool
+from .browser import BrowserTool
 from .filesystem import (DiffFilesTool, FileWatchTool, ListFilesTool,
                          ReadFileTool, WriteFileTool)
 from .map_tool import CodeStatsTool, MapDependenciesTool, MapDirectoryTool
@@ -55,8 +55,6 @@ __all__ = [
     'MapDependenciesTool',
     # Browser
     'BrowserTool',
-    'BrowserInteractTool',
-    'BrowserScreenshotTool',
     'ScreenshotTool',
     # Multimodal
     'ImageGenerationTool',
@@ -92,25 +90,10 @@ def get_all_tools() -> list[Tool]:
         CodeStatsTool(),
         MapDependenciesTool(),
         BrowserTool(),
-        BrowserInteractTool(),
-        BrowserScreenshotTool(),
         ScreenshotTool(),
-            ImageGenerationTool(),
+        ImageGenerationTool(),
         SlideGenerationTool(),
         DiagramGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-
-    AudioGenerationTool(),
         AudioGenerationTool(),
         WebDevelopmentTool(),
         ComponentGenerationTool(),
