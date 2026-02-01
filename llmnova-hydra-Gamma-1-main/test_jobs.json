@@ -88,5 +88,25 @@
         "func_name": "my_job",
         "status": "scheduled",
         "created_at": "2026-01-31T03:07:40.920166"
+    },
+    "5260f47e8d944b0a85887fa025f25779": {
+        "id": "5260f47e8d944b0a85887fa025f25779",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-01T22:08:33.668056"
+    },
+    "0d9f8a19d3214ab9a498fb073712e2c9": {
+        "id": "0d9f8a19d3214ab9a498fb073712e2c9",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-01T22:16:26.614988"
     }
 }

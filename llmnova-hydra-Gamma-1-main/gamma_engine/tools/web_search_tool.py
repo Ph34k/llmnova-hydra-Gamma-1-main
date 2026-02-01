@@ -3,7 +3,7 @@
 import os
 from typing import List, Dict, Any
 from googleapiclient.discovery import build
-from ..base import Tool
+from .base import Tool
 
 class WebSearchTool(Tool):
     """

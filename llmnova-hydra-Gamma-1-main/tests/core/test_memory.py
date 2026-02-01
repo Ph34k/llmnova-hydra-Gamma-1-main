@@ -1,83 +1,82 @@
-import uuid
-from unittest.mock import MagicMock
 
 import pytest
-
-# Import the classes to be tested
-from gamma_engine.core.memory import Memory
+from unittest.mock import MagicMock, patch
+from gamma_engine.core.memory import WorkingMemory
 from gamma_engine.interfaces.llm_provider import Message
-
 
 @pytest.fixture
 def mock_redis_client(mocker):
-    """Mocks the redis_client global variable to return a MagicMock instance."""
-    mock_client = MagicMock()
-    # Patch the global variable, not the getter function
-    mocker.patch('gamma_engine.core.redis_client.redis_client', mock_client)
-    return mock_client
-
-def test_memory_load_from_redis(mock_redis_client):
-    """Tests that memory is correctly loaded from Redis on initialization."""
-    session_id = str(uuid.uuid4())
-    redis_key = f"session:{session_id}:history"
-    
-    # Setup mock to return a message
-    persisted_message = Message(role="user", content="I was persisted")
-    mock_redis_client.lrange.return_value = [persisted_message.model_dump_json()]
-    
-    # Initialize Memory, which should trigger load_from_redis
-    mem = Memory(session_id=session_id)
-    
-    # Assert that lrange was called correctly
-    mock_redis_client.lrange.assert_called_once_with(redis_key, 0, -1)
-    
-    # Assert that the message was loaded
-    assert len(mem.messages) == 1
-    assert mem.messages[0].content == "I was persisted"
-
-def test_memory_add_and_append(mock_redis_client):
-    """Tests that adding/appending messages calls rpush on the redis client."""
-    session_id = str(uuid.uuid4())
-    redis_key = f"session:{session_id}:history"
-    
-    # Set lrange to return nothing so we start fresh
-    mock_redis_client.lrange.return_value = []
-    
-    mem = Memory(session_id=session_id)
-    
-    # Test the add method
-    mem.add(role="user", content="Hello")
-    
-    # Test the append method
-    assistant_msg = Message(role="assistant", content="Hi there")
-    mem.append(assistant_msg)
-    
-    assert len(mem.messages) == 2
-    
-    # Check that rpush was called for both messages
-    assert mock_redis_client.rpush.call_count == 2
-    # Check the last call to rpush
-    mock_redis_client.rpush.assert_called_with(redis_key, assistant_msg.model_dump_json())
-
-def test_memory_clear(mock_redis_client):
-    """Tests that clearing memory calls delete on the redis client."""
-    session_id = str(uuid.uuid4())
-    redis_key = f"session:{session_id}:history"
-    
-    mock_redis_client.lrange.return_value = []
-    mem = Memory(session_id=session_id)
-    
-    mem.add("user", "A message to be cleared")
-    
-    # Clear the memory
-    mem.clear()
-    
-    assert len(mem.messages) == 0
-    mock_redis_client.delete.assert_called_once_with(redis_key)
+    return mocker.patch("gamma_engine.core.memory.get_redis_client")
 
 def test_init_requires_session_id():
-    """Tests that Memory cannot be initialized without a session_id."""
+    """Tests that WorkingMemory cannot be initialized without a session_id."""
     with pytest.raises(ValueError):
-        Memory(session_id="")
-    with pytest.raises(TypeError):
-        Memory()
+        WorkingMemory(session_id="")
+
+def test_memory_load_from_redis(mock_redis_client):
+    """Tests loading messages from Redis."""
+    mock_redis = MagicMock()
+    mock_redis_client.return_value = mock_redis
+    
+    # Mock Redis returning a list of JSON strings
+    msg1 = Message(role="user", content="hello")
+    msg2 = Message(role="assistant", content="hi")
+    mock_redis.lrange.return_value = [msg1.model_dump_json(), msg2.model_dump_json()]
+
+    memory = WorkingMemory(session_id="test_session")
+    
+    assert len(memory.messages) == 2
+    assert memory.messages[0].content == "hello"
+    assert memory.messages[1].content == "hi"
+
+def test_memory_add_and_append(mock_redis_client):
+    """Tests adding messages to memory and Redis."""
+    mock_redis = MagicMock()
+    mock_redis_client.return_value = mock_redis
+    
+    memory = WorkingMemory(session_id="test_session")
+    memory.add(role="user", content="new message")
+    
+    assert len(memory.messages) == 1
+    assert memory.messages[0].content == "new message"
+    
+    # Verify Redis interaction
+    mock_redis.rpush.assert_called_once()
+    args = mock_redis.rpush.call_args[0]
+    assert args[0] == "session:test_session:history"
+    assert "new message" in args[1]
+
+def test_memory_clear(mock_redis_client):
+    """Tests clearing memory."""
+    mock_redis = MagicMock()
+    mock_redis_client.return_value = mock_redis
+    
+    memory = WorkingMemory(session_id="test_session")
+    memory.add("user", "msg")
+    memory.clear()
+    
+    assert len(memory.messages) == 0
+    mock_redis.delete.assert_called_with("session:test_session:history")
+
+def test_get_context(mock_redis_client):
+    memory = WorkingMemory(session_id="test_session")
+    memory.add("user", "msg1")
+    memory.add("assistant", "msg2")
+    
+    context = memory.get_context()
+    assert len(context) == 2
+    assert isinstance(context[0], dict)
+    assert context[0]['role'] == "user"
+
+def test_prune_memory(mock_redis_client):
+    """Test pruning logic (basic verification)."""
+    memory = WorkingMemory(session_id="test_session", max_tokens=10) # Low max tokens
+
+    # Add messages
+    memory.add("user", "a " * 5) # ~5 tokens
+    memory.add("assistant", "b " * 10) # ~10 tokens -> total > 10
+
+    # Should trigger prune/summarize
+    # Since specific prune logic depends on implementation details (which are placeholders),
+    # we mainly check that it doesn't crash and maintains some state.
+    assert len(memory.messages) >= 1

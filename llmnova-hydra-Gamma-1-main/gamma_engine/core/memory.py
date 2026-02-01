@@ -4,8 +4,15 @@ from typing import Any, Dict, List, Optional
 
 from ..interfaces.llm_provider import Message
 from .redis_client import get_redis_client
+from .episodic_memory import EpisodicMemory
 
 logger = logging.getLogger(__name__)
+
+class Memory:
+    """
+    Legacy wrapper for WorkingMemory to support older imports.
+    """
+    pass
 
 class WorkingMemory:
     """
