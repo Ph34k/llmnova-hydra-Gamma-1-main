@@ -8,8 +8,7 @@ import requests
 
 from gamma_engine.tools.base import Tool
 
-
-class WebDevelopmentTool(Tool):
+class WebDevTool(Tool):
     """
     Tool for web development tasks, specifically managing background servers
     and generating basic web structures (HTML/CSS/JS).
@@ -330,3 +329,6 @@ async def {method_decorator}_{func_name}():
             return f"API endpoint {route} ({method}) generated at {output_path}"
         except Exception as e:
             return f"Error generating API: {e}"
+
+# Backward compatibility
+WebDevelopmentTool = WebDevTool
