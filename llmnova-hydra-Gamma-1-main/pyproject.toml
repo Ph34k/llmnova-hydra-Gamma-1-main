@@ -63,3 +63,6 @@ ignore_missing_imports = true
 addopts = "-v --cov=gamma_engine --cov-report=term-missing"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = "."
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

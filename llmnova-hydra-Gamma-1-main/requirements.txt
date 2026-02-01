@@ -25,3 +25,5 @@ pytest-cov
 fpdf2
 google-api-python-client
 google-cloud-aiplatform
+gunicorn
+pytest-mock

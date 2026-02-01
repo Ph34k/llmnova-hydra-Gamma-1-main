@@ -1,8 +1,11 @@
 FROM node:18-alpine
 WORKDIR /app
+
 COPY gamma-frontend/package*.json ./
 RUN npm install
 COPY gamma-frontend/ ./
 RUN npm run build
+
+ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["npm", "start"]

@@ -198,7 +198,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "plan", "content": plan_str})
             logger.info(f"[{session_id}] Plan created: {plan_str}")
 
-            response_message = await loop.run_in_executor(None, lambda: agent.llm.chat(agent.memory, agent.tool_schemas))
+            response_message = await loop.run_in_executor(None, lambda: agent.llm.chat(agent.memory.get_context(), agent.tool_schemas))
             agent.memory.append(response_message.model_dump())
 
             if response_message.tool_calls:
@@ -218,7 +218,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     if "file" in func_name:
                          await websocket.send_json({"type": "file_update", "action": "refresh"})
 
-                final_response = agent.llm.chat(agent.memory)
+                final_response = agent.llm.chat(agent.memory.get_context())
                 agent.memory.append(final_response.model_dump())
                 logger.info(f"[{session_id}] Final response generated after tool calls.")
                 await websocket.send_json({"type": "final-answer", "content": final_response.content})

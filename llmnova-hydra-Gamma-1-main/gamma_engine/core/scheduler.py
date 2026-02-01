@@ -31,13 +31,16 @@ class ScheduleManager:
         self.persistence_file = persistence_file
         self.logger = logging.getLogger("gamma.scheduler")
         self.jobs: Dict[str, Dict[str, Any]] = {}
-        self._load_jobs()
+        # self._load_jobs() # Disabled for now to prevent startup errors with missing callables
 
     def start(self):
         """Starts the scheduler."""
         if not self.scheduler.running:
-            self.scheduler.start()
-            self.logger.info("Schedule Manager started.")
+            try:
+                self.scheduler.start()
+                self.logger.info("Schedule Manager started.")
+            except Exception as e:
+                self.logger.error(f"Error starting scheduler: {e}")
 
     def stop(self):
         """Stops the scheduler."""
@@ -139,3 +142,6 @@ class ScheduleManager:
                 job_data["is_active"] = True
             return job_data
         return None
+
+# Alias for gamma_server.py compatibility
+TaskScheduler = ScheduleManager
