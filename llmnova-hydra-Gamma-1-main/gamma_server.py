@@ -6,7 +6,7 @@ import io
 import shutil
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse
+from starlette.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -19,11 +19,12 @@ from gamma_engine.core.logger import logger
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
 from gamma_engine.tools.web_dev import WebDevTool
+from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
 
 load_dotenv()
 
-app = FastAPI(title="Gamma Engine API", version="1.4.0")
+app = FastAPI(title="Gamma Engine API", version="1.5.0")
 
 FILE_STORAGE_PATH = "file_storage"
 
@@ -62,6 +63,8 @@ async def startup_event():
     os.makedirs(FILE_STORAGE_PATH, exist_ok=True)
     if not os.getenv("GAMMA_API_KEY"):
         logger.warning("GAMMA_API_KEY is not set. Server is running in an insecure mode.")
+    if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
+        logger.warning("Google Search API keys are not set. WebSearchTool will be disabled.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -80,6 +83,22 @@ class FileChangeHandler(FileSystemEventHandler):
                  )
         except Exception as e:
             logger.error(f"File watcher error: {e}")
+
+@app.get("/")
+async def api_documentation():
+    """Returns a summary of available API endpoints."""
+    return JSONResponse({
+        "api_version": app.version,
+        "project_name": app.title,
+        "endpoints": [
+            {"path": "/", "method": "GET", "description": "API documentation summary."},
+            {"path": "/docs", "method": "GET", "description": "Swagger UI for detailed API docs."},
+            {"path": "/redoc", "method": "GET", "description": "ReDoc for alternative API docs."},
+            {"path": "/ws/chat", "method": "WEBSOCKET", "description": "Main endpoint for agent interaction."},
+            {"path": "/api/files/upload/{session_id}", "method": "POST", "description": "Upload a file to a session."},
+            {"path": "/api/report/{session_id}/pdf", "method": "GET", "description": "Download a PDF report of a session."} 
+        ]
+    })
 
 @app.post("/api/files/upload/{session_id}")
 async def upload_file(session_id: str, file: UploadFile = File(...)):
@@ -144,7 +163,8 @@ async def websocket_endpoint(websocket: WebSocket):
         WriteFileTool(base_path=session_dir),
         DiffFilesTool(base_path=session_dir),
         RunBashTool(),
-        WebDevTool()
+        WebDevTool(),
+        WebSearchTool()
     ]
     
     agent = Agent(llm_provider=llm_provider, tools=tools, session_id=session_id)

@@ -23,3 +23,5 @@ apscheduler
 redis==5.0.1
 pytest-cov
 fpdf2
+google-api-python-client
+google-cloud-aiplatform
