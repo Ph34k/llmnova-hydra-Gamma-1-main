@@ -16,15 +16,17 @@ from gamma_engine.core.llm import LLMProvider
 from gamma_engine.core.memory import EpisodicMemory
 from gamma_engine.core.reporting import generate_report_pdf
 from gamma_engine.core.logger import logger
+from gamma_engine.core.rag_service import RAGService
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
 from gamma_engine.tools.web_dev import WebDevTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
+from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
 
 load_dotenv()
 
-app = FastAPI(title="Gamma Engine API", version="1.5.0")
+app = FastAPI(title="Gamma Engine API", version="1.6.0")
 
 FILE_STORAGE_PATH = "file_storage"
 
@@ -56,18 +58,24 @@ class ConnectionManager:
 manager = ConnectionManager()
 scheduler = TaskScheduler()
 llm_provider = LLMProvider(model=os.getenv("LLM_MODEL", "gpt-4o"))
+rag_service = RAGService(
+    project_id=os.getenv("GOOGLE_CLOUD_PROJECT"),
+    location=os.getenv("GOOGLE_CLOUD_LOCATION")
+)
 
 @app.on_event("startup")
-async def startup_event():
+def startup_event():
     scheduler.start()
     os.makedirs(FILE_STORAGE_PATH, exist_ok=True)
     if not os.getenv("GAMMA_API_KEY"):
         logger.warning("GAMMA_API_KEY is not set. Server is running in an insecure mode.")
     if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
         logger.warning("Google Search API keys are not set. WebSearchTool will be disabled.")
+    if not rag_service.is_configured:
+        logger.warning("Vertex AI RAG Service is not configured. RAG tools will be disabled.")
 
 @app.on_event("shutdown")
-async def shutdown_event():
+def shutdown_event():
     scheduler.stop()
 
 class FileChangeHandler(FileSystemEventHandler):
@@ -85,7 +93,7 @@ class FileChangeHandler(FileSystemEventHandler):
             logger.error(f"File watcher error: {e}")
 
 @app.get("/")
-async def api_documentation():
+def api_documentation():
     """Returns a summary of available API endpoints."""
     return JSONResponse({
         "api_version": app.version,
@@ -101,7 +109,7 @@ async def api_documentation():
     })
 
 @app.post("/api/files/upload/{session_id}")
-async def upload_file(session_id: str, file: UploadFile = File(...)):
+def upload_file(session_id: str, file: UploadFile = File(...)):
     session_dir = os.path.join(FILE_STORAGE_PATH, session_id)
     os.makedirs(session_dir, exist_ok=True)
     
@@ -111,13 +119,31 @@ async def upload_file(session_id: str, file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         logger.info(f"[{session_id}] File uploaded: {file.filename}")
+
+        # Upload to RAG service
+        if rag_service.is_configured:
+            corpus_name = rag_service.create_or_get_corpus(f"session-{session_id}-corpus")
+            if corpus_name:
+                # In a real scenario, you'd upload the file to GCS first, then pass the GCS URI
+                # For this example, we'll pass the local path and assume rag_service handles it
+                # or that it's a placeholder for GCS upload.
+                uploaded_rag_doc_name = rag_service.upload_document_to_corpus(corpus_name, file_path, file.filename)
+                if uploaded_rag_doc_name:
+                    logger.info(f"[{session_id}] File {file.filename} also uploaded to RAG corpus: {uploaded_rag_doc_name}")
+                else:
+                    logger.error(f"[{session_id}] Failed to upload {file.filename} to RAG corpus.")
+            else:
+                logger.error(f"[{session_id}] Failed to get/create RAG corpus for session.")
+        else:
+            logger.warning(f"[{session_id}] RAG service not configured, skipping upload to RAG corpus.")
+
         return {"filename": file.filename, "content_type": file.content_type, "size": file.size}
     except Exception as e:
         logger.error(f"[{session_id}] File upload failed for {file.filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Could not upload file: {e}")
 
 @app.get("/api/report/{session_id}/pdf")
-async def get_report_pdf(session_id: str):
+def get_report_pdf(session_id: str):
     logger.info(f"PDF report requested for session_id: {session_id}")
     memory = EpisodicMemory(session_id=session_id)
     try:
@@ -142,7 +168,7 @@ async def get_report_pdf(session_id: str):
     )
 
 @app.websocket("/ws/chat")
-async def websocket_endpoint(websocket: WebSocket):
+def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
     expected_key = os.getenv("GAMMA_API_KEY")
     if expected_key and token != expected_key:
@@ -164,7 +190,8 @@ async def websocket_endpoint(websocket: WebSocket):
         DiffFilesTool(base_path=session_dir),
         RunBashTool(),
         WebDevTool(),
-        WebSearchTool()
+        WebSearchTool(),
+        KnowledgeBaseSearchTool(rag_service=rag_service, corpus_display_name=f"session-{session_id}-corpus")
     ]
     
     agent = Agent(llm_provider=llm_provider, tools=tools, session_id=session_id)
