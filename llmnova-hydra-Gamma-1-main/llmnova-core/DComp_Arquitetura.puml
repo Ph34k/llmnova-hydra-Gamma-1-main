@@ -1,0 +1,49 @@
+@startuml
+!theme plain
+
+title Diagrama de Componentes - NovaLLM
+
+actor "Usuário" as user
+
+package "Sistema NovaLLM" {
+  [GatewayAPI] as gw
+  [Orquestrador de Requisições] as orchestrator
+  [Motor de Inferência] as inference
+  [Serviço de Ingestão (RAG)] as ingestion
+  [Orquestrador de Treino] as trainer
+}
+
+package "Infraestrutura" {
+  database "Weaviate" as weaviate
+  database "Redis" as redis
+  [Loki] as loki
+  [Prometheus] as prometheus
+}
+
+user --> gw
+
+gw --> orchestrator : Encaminha requisição
+orchestrator --> inference : Solicita inferência
+orchestrator --> ingestion : Busca contexto (RAG)
+orchestrator ..> redis : Cache de sessão/resultados
+
+ingestion --> weaviate : CRUD vetorial
+
+trainer --> ingestion : Acessa dados de treino
+trainer --> inference : Avalia modelo
+
+inference ..> redis : Cache de KV
+
+gw ..> loki : Logs
+orchestrator ..> loki : Logs
+inference ..> loki : Logs
+ingestion ..> loki : Logs
+trainer ..> loki : Logs
+
+gw ..> prometheus : Métricas
+orchestrator ..> prometheus : Métricas
+inference ..> prometheus : Métricas
+ingestion ..> prometheus : Métricas
+trainer ..> prometheus : Métricas
+
+@enduml

@@ -1,0 +1,12 @@
+{
+    "verify_job": {
+        "id": "verify_job",
+        "trigger_type": "interval",
+        "trigger_args": {
+            "seconds": 10
+        },
+        "func_name": "task_handler",
+        "status": "scheduled",
+        "created_at": "2026-01-30T20:18:53.413269"
+    }
+}

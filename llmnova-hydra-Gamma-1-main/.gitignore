@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+node_modules/
+.env
+.DS_Store
+*.log
+workspace/
+gamma_workspace/
+dist/
+build/
+coverage/
+.next/
+venv/

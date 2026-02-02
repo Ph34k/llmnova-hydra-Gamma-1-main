@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies including those for Playwright
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers
+RUN playwright install --with-deps
+
+# Copy Backend Code
+COPY gamma_engine ./gamma_engine
+COPY gamma_server.py .
+
+CMD ["uvicorn", "gamma_server:app", "--host", "0.0.0.0", "--port", "8000"]
+
