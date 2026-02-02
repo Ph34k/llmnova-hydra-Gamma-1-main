@@ -1,10 +1,3 @@
-```
-"""Long-term Memory (L3) / Semantic Memory for the Gamma Engine.
-
-This module defines the LongTermMemory class, which is responsible for
-storing and retrieving key facts and knowledge in a persistent and
-retrievable format, often using vector databases for RAG (Retrieval-Augmented Generation).
-"""
 """Long-term Memory (L3) / Semantic Memory for the Gamma Engine.
 
 This module defines the LongTermMemory class, which is responsible for

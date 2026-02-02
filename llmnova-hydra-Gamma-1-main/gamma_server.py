@@ -168,7 +168,7 @@ def get_report_pdf(session_id: str):
     )
 
 @app.websocket("/ws/chat")
-def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
     expected_key = os.getenv("GAMMA_API_KEY")
     if expected_key and token != expected_key:

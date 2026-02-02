@@ -219,7 +219,7 @@ class BrowserTool(Tool):
         if wait_for_selector:
             self._wait_for_selector(page, wait_for_selector)
             
-try:
+        try:
             page.click(selector)
             logger.info(f"Clicked element: {selector}")
             return f"Successfully clicked element: {selector}"
@@ -247,7 +247,7 @@ try:
         if wait_for_selector:
             self._wait_for_selector(page, wait_for_selector)
             
-try:
+        try:
             page.fill(selector, text)
             logger.info(f"Typed '{text}' into element: {selector}")
             return f"Successfully typed into element: {selector}"
@@ -275,7 +275,7 @@ try:
         if wait_for_selector:
             self._wait_for_selector(page, wait_for_selector)
             
-try:
+        try:
             page.screenshot(path=output_path, full_page=full_page)
             logger.info(f"Screenshot saved to: {output_path}")
             return f"Screenshot saved to: {output_path}"
@@ -302,7 +302,7 @@ try:
         if wait_for_selector:
             self._wait_for_selector(page, wait_for_selector)
             
-try:
+        try:
             text_content = page.locator(selector).text_content()
             logger.info(f"Got text from '{selector}': {text_content[:100]}...")
             return text_content if text_content is not None else ""
@@ -329,7 +329,7 @@ try:
         if wait_for_selector:
             self._wait_for_selector(page, wait_for_selector)
             
-try:
+        try:
             html_content = page.locator(selector).inner_html()
             logger.info(f"Got HTML from '{selector}': {html_content[:100]}...")
             return html_content if html_content is not None else ""
@@ -359,5 +359,3 @@ try:
     def __del__(self):
         """Ensures Playwright browser is closed when the tool is destroyed."""
         self._close_playwright()
-
-

@@ -1,0 +1,42 @@
+{
+    "c434630190404ad98b26270238cd3a9d": {
+        "id": "c434630190404ad98b26270238cd3a9d",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-02T00:04:23.728168"
+    },
+    "289421a0fb924c01a278bd96aeaa5a48": {
+        "id": "289421a0fb924c01a278bd96aeaa5a48",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-02T00:05:30.860829"
+    },
+    "a9ed7d75b36043a98f35d889e823a36b": {
+        "id": "a9ed7d75b36043a98f35d889e823a36b",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-02T00:06:14.327626"
+    },
+    "368c9fd5ba0547dc942978695bc1e6d7": {
+        "id": "368c9fd5ba0547dc942978695bc1e6d7",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-02T00:16:06.022313"
+    }
+}

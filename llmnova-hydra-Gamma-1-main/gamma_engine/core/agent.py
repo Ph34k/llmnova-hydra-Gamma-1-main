@@ -13,7 +13,8 @@ import uuid
 from ..interfaces.tool import ToolInterface
 from .memory import EpisodicMemory
 from .planner import Planner
-from .messaging import Message
+# Using LLM Message format for internal memory, not messaging.Message
+from ..interfaces.llm_provider import Message
 
 
 class Agent:
@@ -37,7 +38,7 @@ class Agent:
         self.event_callback = event_callback
         self.llm = llm_provider
         self.memory = EpisodicMemory(session_id=self.session_id)
-        self.planner = Planner(llm_provider=self.llm, tools=self.tool_schemas)
+        self.planner = Planner(llm_provider=self.llm)
 
     @property
     def tool_schemas(self) -> List[Dict[str, Any]]:
@@ -46,7 +47,7 @@ class Agent:
 
     def add_message(self, role: str, content: str):
         """Add a message to the agent's memory."""
-        message = Message(role=role, content=content)
+        message = Message(role=role, content=content, tool_calls=None)
         self.memory.append(message.model_dump())
 
     async def execute_tool(self, name: str, **kwargs: Any) -> Optional[str]:
@@ -79,4 +80,3 @@ class Agent:
         if self.event_callback:
             await self.event_callback("assistant_message", {"content": f"Agent received: {user_input}"})
         return f"Agent received: {user_input}"
-

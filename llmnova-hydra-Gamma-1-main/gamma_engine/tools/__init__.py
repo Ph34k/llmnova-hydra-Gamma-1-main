@@ -10,14 +10,15 @@ Available Tools:
     Shell: ShellTool, InteractiveShellTool
     Search: CodeSearchTool, FileSearchTool
     Map: MapDirectoryTool, CodeStatsTool, MapDependenciesTool
-    Browser: ReadUrlTool, InteractBrowserTool, ScreenshotTool
+    Browser: BrowserTool (replaces InteractBrowserTool, ReadUrlTool)
     Multimodal: ImageGenerationTool, SlideGenerationTool, DiagramGenerationTool
     Web Development: WebDevTool
     Terminal: RunBashTool (legacy)
 """
 
 from .base import Tool
-from .browser import BrowserInteractTool, BrowserScreenshotTool, BrowserTool
+# Removed BrowserInteractTool, BrowserScreenshotTool as they are consolidated into BrowserTool
+from .browser import BrowserTool
 from .filesystem import (DiffFilesTool, FileWatchTool, ListFilesTool,
                          ReadFileTool, WriteFileTool)
 from .map_tool import CodeStatsTool, MapDependenciesTool, MapDirectoryTool
@@ -55,15 +56,11 @@ __all__ = [
     'MapDependenciesTool',
     # Browser
     'BrowserTool',
-    'BrowserInteractTool',
-    'BrowserScreenshotTool',
     'ScreenshotTool',
     # Multimodal
     'ImageGenerationTool',
     'SlideGenerationTool',
     'DiagramGenerationTool',
-    'AudioGenerationTool',
-    'AudioGenerationTool',
     'AudioGenerationTool',
     # Web Development
     'WebDevelopmentTool',
@@ -92,25 +89,12 @@ def get_all_tools() -> list[Tool]:
         CodeStatsTool(),
         MapDependenciesTool(),
         BrowserTool(),
-        BrowserInteractTool(),
-        BrowserScreenshotTool(),
+        # BrowserInteractTool(), # Removed
+        # BrowserScreenshotTool(), # Removed
         ScreenshotTool(),
-            ImageGenerationTool(),
+        ImageGenerationTool(),
         SlideGenerationTool(),
         DiagramGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-        AudioGenerationTool(),
-
-    AudioGenerationTool(),
         AudioGenerationTool(),
         WebDevelopmentTool(),
         ComponentGenerationTool(),
