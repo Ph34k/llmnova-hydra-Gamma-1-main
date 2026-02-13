@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, Terminal, Cpu, Sparkles, Download, User, Bot, Wrench, Paperclip, File as FileIcon } from 'lucide-react';
 
 interface NeuralInterfaceProps {
     ws: WebSocket | null;
+    sessionId: string | null;
 }
 
 const roleIcons: { [key: string]: React.ReactNode } = {
@@ -25,11 +26,10 @@ const roleStyles: { [key: string]: string } = {
   'file-upload': 'border-gray-500/50',
 };
 
-export default function NeuralInterface({ ws }: NeuralInterfaceProps) {
+export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState('disconnected');
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -44,7 +44,7 @@ export default function NeuralInterface({ ws }: NeuralInterfaceProps) {
       console.log("NI Received:", data);
 
       if (data.type === 'session_info') {
-        setSessionId(data.sessionId);
+         // Session ID handled by parent
       } else if (data.type === 'message') {
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
       } else if (data.type === 'final-answer') {

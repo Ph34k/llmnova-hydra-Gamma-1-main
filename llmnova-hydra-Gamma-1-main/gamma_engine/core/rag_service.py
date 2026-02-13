@@ -119,4 +119,3 @@ class RAGService:
         except GoogleAPIError as e:
             logger.error(f"Error querying RAG corpus '{corpus_name}': {e}")
             return []
-

@@ -3,7 +3,7 @@
 import os
 from typing import List, Dict, Any
 
-from ..base import Tool
+from .base import Tool
 from ..core.rag_service import RAGService
 from ..core.logger import logger
 
@@ -77,4 +77,3 @@ class KnowledgeBaseSearchTool(Tool):
         except Exception as e:
             logger.error(f"An error occurred during knowledge base search: {e}")
             return f"An error occurred during the knowledge base search: {e}"
-

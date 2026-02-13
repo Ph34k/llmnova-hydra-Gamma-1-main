@@ -3,7 +3,7 @@
 import os
 from typing import List, Dict, Any
 from googleapiclient.discovery import build
-from ..base import Tool
+from .base import Tool
 
 class WebSearchTool(Tool):
     """
@@ -43,7 +43,13 @@ class WebSearchTool(Tool):
             self.is_configured = False
         else:
             self.is_configured = True
-            self.service = build("customsearch", "v1", developerKey=self.api_key)
+            # Build service only if keys are present to avoid startup error
+            try:
+                self.service = build("customsearch", "v1", developerKey=self.api_key)
+            except Exception as e:
+                # Log error but don't crash
+                print(f"Error initializing Google Custom Search service: {e}")
+                self.is_configured = False
 
     def execute(self, query: str, num_results: int = 5) -> str:
         """

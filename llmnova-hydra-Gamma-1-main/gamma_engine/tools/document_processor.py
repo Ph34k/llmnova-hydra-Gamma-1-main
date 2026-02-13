@@ -9,6 +9,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from .base import Tool
+from pydantic import BaseModel
+
 # Placeholder for external libraries
 try:
     import pypdf
@@ -87,7 +90,6 @@ def extract_text_from_file(file_path: str) -> str:
     else:
         return f"Error: Unsupported file type for text extraction: {file_extension}"
 
-
 class DocumentProcessorTool(Tool):
     """
     A tool for processing various document formats.
@@ -98,22 +100,58 @@ class DocumentProcessorTool(Tool):
             name="document_processor",
             description=(
                 "Process various document formats (PDF, images, text) to extract text. "
-                "Actions: 'extract_text'."
+                "Actions: 'extract_text', 'convert_to_markdown'."
             ),
             parameters={
                 "type": "object",
                 "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["extract_text", "convert_to_markdown"],
+                        "description": "The action to perform on the document."
+                    },
                     "file_path": {
                         "type": "string",
                         "description": "The path to the document file."
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional: Path to save the converted Markdown file (for 'convert_to_markdown')."
                     }
                 },
                 "required": ["file_path"]
             }
         )
 
-    def execute(self, file_path: str) -> Any:
+    def convert_to_markdown(self, file_path: str, output_path: Optional[str] = None) -> str:
+        """
+        Converts the text content of a file (PDF or image) to Markdown.
+        This is a placeholder and would involve more sophisticated conversion logic.
+        """
+        text_content = extract_text_from_file(file_path)
+
+        if "Error:" in text_content:
+            return text_content # Propagate error from extraction
+
+        markdown_content = f"# Document Content from {file_path}\n\n" + text_content
+
+        if output_path:
+            try:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(markdown_content)
+                return f"Converted content saved to: {output_path}"
+            except Exception as e:
+                return f"Error saving Markdown file: {e}"
+
+        return markdown_content
+
+    def execute(self, file_path: str, action: str = "extract_text", output_path: Optional[str] = None, **kwargs) -> Any:
         """
         Executes the specified document processing action.
         """
-        return extract_text_from_file(file_path)
+        if action == "extract_text":
+            return extract_text_from_file(file_path)
+        elif action == "convert_to_markdown":
+            return self.convert_to_markdown(file_path, output_path)
+        else:
+            return extract_text_from_file(file_path) # Default
