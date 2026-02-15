@@ -53,6 +53,8 @@ export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps)
          setMessages(prev => [...prev, { role: 'tool-call', content: `Executing ${data.tool}...`, details: data.args }]);
       } else if (data.type === 'tool_result') {
          setMessages(prev => [...prev, { role: 'tool-result', content: `Result from ${data.tool}`, details: data.result }]);
+      } else if (data.type === 'plan') {
+         setMessages(prev => [...prev, { role: 'assistant', content: "Current Plan:", details: data.content }]);
       } else if (data.type === 'status') {
         setStatus(data.content);
       }

@@ -26,11 +26,15 @@ from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
 from prometheus_fastapi_instrumentator import Instrumentator
 from backend.system_api import router as system_router
+from backend.brain_api import router as brain_router
+import backend.brain_api as brain_api_module
 from gamma_engine.tools.system_tool import SystemStatusTool
 from gamma_engine.tools.training_tool import ModelTrainingTool
 from gamma_engine.core.training.base import LocalTrainer
 from gamma_engine.core.config import settings
 from gamma_engine.core.health_monitor import HealthMonitor
+from gamma_engine.core.workflow_engine import WorkflowEngine
+from gamma_engine.core.long_term_memory import LongTermMemory
 
 load_dotenv()
 
@@ -65,12 +69,22 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 scheduler = TaskScheduler()
+workflow_engine = WorkflowEngine(scheduler)
+# LTM is session-specific usually, but for the API inspector we need a global or shared view.
+# We'll initialize a "system" memory view or require session_id in the API.
+# For MVP dashboard, we use a shared system view.
+global_ltm = LongTermMemory(session_id="system_shared")
+
 llm_provider = LLMProvider(model=settings.llm_model)
 health_monitor = HealthMonitor(
     interval=settings.health_monitor_interval,
     cpu_threshold=settings.cpu_alert_threshold,
     mem_threshold=settings.mem_alert_threshold
 )
+
+# Inject dependencies into brain_api
+brain_api_module.workflow_engine = workflow_engine
+brain_api_module.long_term_memory = global_ltm
 
 # Initialize RAG Provider based on configuration
 rag_provider_type = settings.rag_provider.lower()
@@ -89,6 +103,7 @@ else:
 # Prometheus Metrics
 instrumentator = Instrumentator().instrument(app)
 app.include_router(system_router)
+app.include_router(brain_router)
 
 @app.on_event("startup")
 def startup_event():
