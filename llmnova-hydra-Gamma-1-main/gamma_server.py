@@ -19,6 +19,7 @@ from gamma_engine.core.logger import logger
 from gamma_engine.core.rag_service import RAGService
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
+from gamma_engine.tools.editor import StrReplaceEditorTool
 from gamma_engine.tools.web_dev import WebDevTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
@@ -188,6 +189,7 @@ async def websocket_endpoint(websocket: WebSocket):
         ReadFileTool(base_path=session_dir),
         WriteFileTool(base_path=session_dir),
         DiffFilesTool(base_path=session_dir),
+        StrReplaceEditorTool(base_path=session_dir),
         RunBashTool(),
         WebDevTool(),
         WebSearchTool(),

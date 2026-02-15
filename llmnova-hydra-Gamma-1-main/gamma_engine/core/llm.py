@@ -76,9 +76,40 @@ class LLMProvider(LLMProviderInterface):
         tool_choice: Optional[Any] = None,
         temperature: float = 0.0
     ) -> Message:
+        # Pre-process messages for image support
+        formatted_messages = []
+        for msg in messages:
+            new_msg = {"role": msg["role"]}
+
+            # If base64_image is present, format content as list
+            if msg.get("base64_image"):
+                content_list = []
+                if msg.get("content"):
+                    content_list.append({"type": "text", "text": msg["content"]})
+
+                content_list.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{msg['base64_image']}"
+                    }
+                })
+                new_msg["content"] = content_list
+            else:
+                new_msg["content"] = msg.get("content")
+
+            # Copy other fields if necessary (tool_calls, etc.)
+            if msg.get("tool_calls"):
+                new_msg["tool_calls"] = msg["tool_calls"]
+            if msg.get("tool_call_id"):
+                new_msg["tool_call_id"] = msg["tool_call_id"]
+            if msg.get("name"):
+                new_msg["name"] = msg["name"]
+
+            formatted_messages.append(new_msg)
+
         kwargs: Dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": formatted_messages,
             "temperature": temperature
         }
         if tools:
@@ -112,7 +143,30 @@ class LLMProvider(LLMProviderInterface):
             if msg["role"] == "system":
                 system_prompt = msg["content"]
             else:
-                filtered_messages.append(msg)
+                # Format for Anthropic images
+                new_msg = {"role": msg["role"]}
+                if msg.get("base64_image"):
+                    content_list = []
+                    if msg.get("content"):
+                        content_list.append({"type": "text", "text": msg["content"]})
+
+                    content_list.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": msg["base64_image"]
+                        }
+                    })
+                    new_msg["content"] = content_list
+                else:
+                    new_msg["content"] = msg.get("content")
+
+                # Copy tool related fields if needed? Anthropic handles tool use differently in history
+                # Usually assistant messages with tool_use blocks are handled by 'content' being a list
+                # This simple adapter might need more robust history conversion for tools, but for images this works.
+
+                filtered_messages.append(new_msg)
 
         kwargs: Dict[str, Any] = {
             "model": self.model,

@@ -442,8 +442,31 @@ class BrowserTool(Tool):
              return self.get_dropdown_options(kwargs.get("selector", ""), kwargs.get("url"))
         elif action == "select_dropdown_option":
              return self.select_dropdown_option(kwargs.get("selector", ""), kwargs.get("text", ""), kwargs.get("url"))
+        elif action == "get_state":
+             return self.get_current_state()
         else:
             return f"Error: Unknown browser action '{action}'"
+
+    def get_current_state(self) -> Dict[str, Any]:
+        """Returns the current state of the browser including screenshot."""
+        if not self._page_instance:
+            return {"error": "Browser not initialized"}
+
+        try:
+            import base64
+            screenshot_bytes = self._page_instance.screenshot(full_page=False, type="jpeg", quality=50)
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+
+            return {
+                "url": self._page_instance.url,
+                "title": self._page_instance.title(),
+                "base64_image": screenshot_b64,
+                "pixels_above": 0, # Placeholder
+                "pixels_below": 0, # Placeholder
+                "tabs": [], # Placeholder
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     def __del__(self):
         """Ensures Playwright browser is closed when the tool is destroyed."""

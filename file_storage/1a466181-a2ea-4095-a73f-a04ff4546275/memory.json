@@ -11,3 +11,8 @@
     "role": "system",
     "content": "The initial plan to achieve the goal is:\n1. Hello"
   },
+  {
+    "role": "assistant",
+    "content": "Final Answer"
+  }
+]

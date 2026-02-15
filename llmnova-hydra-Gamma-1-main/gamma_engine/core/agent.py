@@ -13,6 +13,7 @@ from ..interfaces.tool import ToolInterface
 from .memory import EpisodicMemory
 from .planner import Planner
 from ..interfaces.llm_provider import Message
+from .browser_helper import BrowserContextHelper
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class Agent:
         self.memory = EpisodicMemory(session_id=self.session_id)
         self.planner = Planner(llm_provider=self.llm)
         self.max_steps = max_steps
+        self.browser_helper = BrowserContextHelper(self)
         self.system_prompt = (
             "You are Gamma, an advanced AI assistant capable of solving complex tasks. "
             "You have access to a variety of tools. Use them wisely. "
@@ -118,8 +120,24 @@ class Agent:
 
             # THINK
             try:
-                # We need to get context as dicts for the LLM provider
+                # Augment prompt with browser state if active
+                browser_prompt = await self.browser_helper.format_next_step_prompt()
+
+                # We temporarily inject this prompt or just rely on the memory updates done by helper
+                # The helper might add a user message with image.
+                # But we also want to guide the *next* step.
+
+                # Ideally, we append a system instruction about the browser state to the history
+                # without persisting it permanently if it's just transient state?
+                # For now, let's treat it as a transient system message for this turn.
+
                 context = self.memory.get_context()
+
+                # If the helper didn't add an image but returned text (prompt), we can append it
+                # to the last message or as a system message.
+                if browser_prompt and "Current Browser State" in browser_prompt:
+                     context.append({"role": "system", "content": browser_prompt})
+
                 response = await asyncio.to_thread(
                     self.llm.chat,
                     history=context,

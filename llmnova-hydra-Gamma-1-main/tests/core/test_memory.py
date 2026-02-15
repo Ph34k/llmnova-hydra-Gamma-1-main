@@ -34,7 +34,8 @@ def test_memory_add_and_append(mock_redis_client):
     mock_redis = MagicMock()
     mock_redis_client.return_value = mock_redis
     
-    memory = WorkingMemory(session_id="test_session")
+    memory = WorkingMemory(session_id="test_session_new")
+    memory.messages = [] # Force clear if it loaded from file/redis
     memory.add(role="user", content="new message")
     
     assert len(memory.messages) == 1
@@ -43,7 +44,7 @@ def test_memory_add_and_append(mock_redis_client):
     # Verify Redis interaction
     mock_redis.rpush.assert_called_once()
     args = mock_redis.rpush.call_args[0]
-    assert args[0] == "session:test_session:history"
+    assert args[0] == "session:test_session_new:history"
     assert "new message" in args[1]
 
 def test_memory_clear(mock_redis_client):

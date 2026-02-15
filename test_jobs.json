@@ -48,5 +48,35 @@
         "func_name": "my_job",
         "status": "scheduled",
         "created_at": "2026-02-15T18:11:57.988552"
+    },
+    "6f1f704a72e14ad5be6fe81ba138f9b3": {
+        "id": "6f1f704a72e14ad5be6fe81ba138f9b3",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-15T18:32:17.990487"
+    },
+    "eec2ac00153249a492b649cdd0446636": {
+        "id": "eec2ac00153249a492b649cdd0446636",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-15T18:35:10.286185"
+    },
+    "a3e02a3fd64443418eefaad6d2b85f73": {
+        "id": "a3e02a3fd64443418eefaad6d2b85f73",
+        "trigger_type": "date",
+        "trigger_args": {
+            "run_date": null
+        },
+        "func_name": "my_job",
+        "status": "scheduled",
+        "created_at": "2026-02-15T18:38:08.453382"
     }
 }
