@@ -26,14 +26,19 @@ from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
 from prometheus_fastapi_instrumentator import Instrumentator
 from backend.system_api import router as system_router
+from gamma_engine.tools.system_tool import SystemStatusTool
+from gamma_engine.tools.training_tool import ModelTrainingTool
+from gamma_engine.core.training.base import LocalTrainer
+from gamma_engine.core.config import settings
+from gamma_engine.core.health_monitor import HealthMonitor
 
 load_dotenv()
 
-app = FastAPI(title="Gamma Engine API", version="1.6.0")
+app = FastAPI(title="Gamma Engine API", version="2.0.0")
 
 FILE_STORAGE_PATH = "file_storage"
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+allowed_origins = settings.allowed_origins.split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,10 +65,15 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 scheduler = TaskScheduler()
-llm_provider = LLMProvider(model=os.getenv("LLM_MODEL", "gpt-4o"))
+llm_provider = LLMProvider(model=settings.llm_model)
+health_monitor = HealthMonitor(
+    interval=settings.health_monitor_interval,
+    cpu_threshold=settings.cpu_alert_threshold,
+    mem_threshold=settings.mem_alert_threshold
+)
 
-# Initialize RAG Provider based on environment variable
-rag_provider_type = os.getenv("RAG_PROVIDER", "vertex").lower()
+# Initialize RAG Provider based on configuration
+rag_provider_type = settings.rag_provider.lower()
 rag_service = None
 
 if rag_provider_type == "local":
@@ -72,8 +82,8 @@ if rag_provider_type == "local":
 else:
     logger.info("Initializing Vertex AI RAG Provider...")
     rag_service = VertexRAGProvider(
-        project_id=os.getenv("GOOGLE_CLOUD_PROJECT"),
-        location=os.getenv("GOOGLE_CLOUD_LOCATION")
+        project_id=settings.google_cloud_project,
+        location=settings.google_cloud_location
     )
 
 # Prometheus Metrics
@@ -83,12 +93,12 @@ app.include_router(system_router)
 @app.on_event("startup")
 def startup_event():
     scheduler.start()
+    health_monitor.start()
     instrumentator.expose(app, include_in_schema=False)
     os.makedirs(FILE_STORAGE_PATH, exist_ok=True)
-    if not os.getenv("GAMMA_API_KEY"):
+
+    if not settings.gamma_api_key:
         logger.warning("GAMMA_API_KEY is not set. Server is running in an insecure mode.")
-    if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
-        logger.warning("Google Search API keys are not set. WebSearchTool will be disabled.")
 
     if rag_service and not rag_service.is_configured:
         logger.warning(f"{rag_provider_type.capitalize()} RAG Service is not configured. RAG tools will be disabled.")
@@ -96,6 +106,7 @@ def startup_event():
 @app.on_event("shutdown")
 def shutdown_event():
     scheduler.stop()
+    health_monitor.stop()
 
 class FileChangeHandler(FileSystemEventHandler):
     def on_any_event(self, event):
@@ -210,7 +221,9 @@ async def websocket_endpoint(websocket: WebSocket):
         RunBashTool(),
         WebDevTool(),
         WebSearchTool(),
-        KnowledgeBaseSearchTool(rag_service=rag_service, corpus_display_name=f"session-{session_id}-corpus")
+        KnowledgeBaseSearchTool(rag_service=rag_service, corpus_display_name=f"session-{session_id}-corpus"),
+        SystemStatusTool(),
+        ModelTrainingTool(trainer=LocalTrainer())
     ]
     
     agent = Agent(llm_provider=llm_provider, tools=tools, session_id=session_id)

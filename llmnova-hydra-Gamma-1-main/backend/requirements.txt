@@ -1,5 +1,4 @@
 chromadb==0.4.22
-sentence-transformers==2.5.1
 psutil
 prometheus-fastapi-instrumentator
 sentence-transformers

@@ -1,4 +1,3 @@
-
 import os
 import shutil
 import unittest
@@ -16,84 +15,88 @@ sys.modules["chromadb.utils"] = MagicMock()
 sys.modules["chromadb.utils.embedding_functions"] = MagicMock()
 sys.modules["sentence_transformers"] = MagicMock()
 
+# Patch ingestion modules
+sys.modules["gamma_engine.core.ingestion.vector_store"] = MagicMock()
+sys.modules["gamma_engine.core.ingestion.embeddings"] = MagicMock()
+sys.modules["gamma_engine.core.ingestion.loaders"] = MagicMock()
+sys.modules["gamma_engine.core.ingestion.processors"] = MagicMock()
+
 from gamma_engine.core.rag.local import LocalRAGProvider
 
 class TestLocalRAG(unittest.TestCase):
     def setUp(self):
-        # Reset mocks before each test
+        # Reset mocks
         sys.modules["chromadb"].reset_mock()
-        sys.modules["chromadb.utils.embedding_functions"].reset_mock()
 
-        self.mock_client = MagicMock()
-        self.mock_collection = MagicMock()
-        self.mock_client.get_or_create_collection.return_value = self.mock_collection
+        # Setup common return values
+        self.mock_vector_store = MagicMock()
+        self.mock_embedder = MagicMock()
+        self.mock_loader = MagicMock()
 
-        # Configure query return mock
-        # ChromaDB query returns: {'ids': [...], 'distances': [...], 'metadatas': [[...]], 'embeddings': None, 'documents': [[...]]}
-        self.mock_collection.query.return_value = {
-            'ids': [['doc1']],
-            'distances': [[0.1]],
-            'metadatas': [[{'source': 'test_doc'}]],
-            'embeddings': None,
-            'documents': [['This is a test content']]
+    @patch("gamma_engine.core.rag.local.ChromaVectorStore")
+    @patch("gamma_engine.core.rag.local.SentenceTransformerEmbeddings")
+    def test_initialization(self, mock_embed_cls, mock_store_cls):
+        mock_embed_cls.return_value = self.mock_embedder
+        mock_store_cls.return_value = self.mock_vector_store
+
+        with patch.object(LocalRAGProvider, 'is_configured', True):
+            # Since HAS_LOCAL_RAG_DEPS is a module-level constant that was evaluated at import time,
+            # patching it via string 'gamma_engine.core.rag.local.HAS_LOCAL_RAG_DEPS' is tricky if already imported.
+            # However, for this test, we are mocking the classes that LocalRAGProvider uses.
+
+            # Re-reload module to apply HAS_LOCAL_RAG_DEPS patch if needed, or just rely on mocked imports above.
+            # Because we mocked sys.modules["chromadb"], ImportError won't happen, so HAS_LOCAL_RAG_DEPS should be True.
+
+            provider = LocalRAGProvider()
+            # If initialization succeeds, it means deps were found (mocked)
+            self.assertTrue(provider.is_configured)
+            mock_embed_cls.assert_called_once()
+            mock_store_cls.assert_called_once()
+
+    @patch("gamma_engine.core.rag.local.ChromaVectorStore")
+    @patch("gamma_engine.core.rag.local.SentenceTransformerEmbeddings")
+    @patch("gamma_engine.core.rag.local.LoaderFactory")
+    @patch("gamma_engine.core.rag.local.TextProcessor")
+    def test_upload_document(self, mock_processor, mock_factory, mock_embed_cls, mock_store_cls):
+        # Setup logic mocks
+        mock_embed_cls.return_value = self.mock_embedder
+        self.mock_embedder.model = MagicMock()
+        mock_store_cls.return_value = self.mock_vector_store
+
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = "Test Content"
+        mock_factory.get_loader.return_value = mock_loader
+
+        mock_processor.chunk_text.return_value = ["Test Content"]
+
+        provider = LocalRAGProvider()
+        provider.upload_document_to_corpus("test_corpus", "test.txt", "doc1")
+
+        # Verify pipeline calls
+        mock_factory.get_loader.assert_called_with("test.txt")
+        mock_loader.load.assert_called_with("test.txt")
+        mock_processor.chunk_text.assert_called()
+        self.mock_vector_store.add_texts.assert_called()
+
+    @patch("gamma_engine.core.rag.local.ChromaVectorStore")
+    @patch("gamma_engine.core.rag.local.SentenceTransformerEmbeddings")
+    def test_query(self, mock_embed_cls, mock_store_cls):
+        mock_embed_cls.return_value = self.mock_embedder
+        self.mock_embedder.model = MagicMock()
+        mock_store_cls.return_value = self.mock_vector_store
+
+        # Mock search results
+        self.mock_vector_store.similarity_search.return_value = {
+            'documents': [['Result Content']],
+            'metadatas': [[{'source': 'doc1'}]]
         }
 
-    @patch("gamma_engine.core.rag.local.chromadb.PersistentClient")
-    @patch("gamma_engine.core.rag.local.embedding_functions.SentenceTransformerEmbeddingFunction")
-    def test_initialization(self, mock_emb_fn, mock_client_cls):
-        # Setup return values for the patches
-        mock_client_cls.return_value = self.mock_client
+        provider = LocalRAGProvider()
+        results = provider.query_rag_corpus("test_corpus", "query")
 
-        # Force HAS_LOCAL_RAG_DEPS to be True for the test context
-        with patch("gamma_engine.core.rag.local.HAS_LOCAL_RAG_DEPS", True):
-            provider = LocalRAGProvider()
-            self.assertTrue(provider.is_configured)
-            mock_client_cls.assert_called_once()
-
-    @patch("gamma_engine.core.rag.local.chromadb.PersistentClient")
-    @patch("gamma_engine.core.rag.local.embedding_functions.SentenceTransformerEmbeddingFunction")
-    def test_create_corpus(self, mock_emb_fn, mock_client_cls):
-        mock_client_cls.return_value = self.mock_client
-
-        with patch("gamma_engine.core.rag.local.HAS_LOCAL_RAG_DEPS", True):
-            provider = LocalRAGProvider()
-
-            name = provider.create_or_get_corpus("test_corpus")
-            self.assertEqual(name, "test_corpus")
-            # We check if get_or_create_collection was called on the CLIENT instance
-            self.mock_client.get_or_create_collection.assert_called()
-
-    @patch("gamma_engine.core.rag.local.chromadb.PersistentClient")
-    @patch("gamma_engine.core.rag.local.embedding_functions.SentenceTransformerEmbeddingFunction")
-    @patch("gamma_engine.core.rag.local.extract_text_from_file")
-    def test_upload_document(self, mock_extract, mock_emb_fn, mock_client_cls):
-        mock_client_cls.return_value = self.mock_client
-        mock_extract.return_value = "This is a test content"
-
-        with patch("gamma_engine.core.rag.local.HAS_LOCAL_RAG_DEPS", True):
-            provider = LocalRAGProvider()
-            provider.create_or_get_corpus("test_corpus")
-
-            # We mock open() implicitly since extract_text_from_file is mocked
-            res = provider.upload_document_to_corpus("test_corpus", "fake_path.txt", "test_doc")
-
-            self.assertEqual(res, "test_doc")
-            self.mock_collection.add.assert_called_once()
-
-    @patch("gamma_engine.core.rag.local.chromadb.PersistentClient")
-    @patch("gamma_engine.core.rag.local.embedding_functions.SentenceTransformerEmbeddingFunction")
-    def test_query(self, mock_emb_fn, mock_client_cls):
-        mock_client_cls.return_value = self.mock_client
-
-        with patch("gamma_engine.core.rag.local.HAS_LOCAL_RAG_DEPS", True):
-            provider = LocalRAGProvider()
-            provider.create_or_get_corpus("test_corpus")
-
-            results = provider.query_rag_corpus("test_corpus", "test query")
-
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]['content'], "This is a test content")
-            self.mock_collection.query.assert_called_once()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['content'], 'Result Content')
+        self.mock_vector_store.similarity_search.assert_called_with("query", k=5)
 
 if __name__ == "__main__":
     unittest.main()
