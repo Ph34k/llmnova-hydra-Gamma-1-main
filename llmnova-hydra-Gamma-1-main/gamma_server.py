@@ -24,6 +24,7 @@ from gamma_engine.tools.web_dev import WebDevTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
+from gamma_engine.flow.planning import PlanningFlow
 
 load_dotenv()
 
@@ -226,13 +227,22 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             user_input = payload.get("message")
+            mode = payload.get("mode", "agent") # 'agent' or 'planning'
+
             if not user_input:
                 continue
 
-            logger.info(f"[{session_id}] User input: {user_input[:100]}...")
+            logger.info(f"[{session_id}] User input: {user_input[:100]}... Mode: {mode}")
 
-            # Use the new Agent.run method which handles the entire loop
-            await agent.run(user_input)
+            if mode == "planning":
+                # Initialize and execute Planning Flow
+                flow = PlanningFlow(primary_agent=agent)
+                await websocket.send_json({"type": "status", "content": "planning_started"})
+                result = await flow.execute(user_input)
+                await websocket.send_json({"type": "final-answer", "content": result})
+            else:
+                # Standard Agent Run
+                await agent.run(user_input)
 
 
     except WebSocketDisconnect:
