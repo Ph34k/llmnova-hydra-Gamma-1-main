@@ -9,7 +9,7 @@ from gamma_engine.core.rag.base import RAGProvider
 try:
     import chromadb
     from chromadb.utils import embedding_functions
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import CrossEncoder, SentenceTransformer
     HAS_LOCAL_RAG_DEPS = True
 except ImportError:
     HAS_LOCAL_RAG_DEPS = False
@@ -19,7 +19,7 @@ except ImportError:
 class LocalRAGProvider(RAGProvider):
     """
     RAG Provider implementation using ChromaDB and Sentence Transformers.
-    This mimics the legacy Hydra local RAG capabilities.
+    Mimics legacy Hydra local RAG capabilities with added re-ranking.
     """
     def __init__(self, persistence_path: str = "./chroma_db", collection_name: str = "gamma_knowledge_base"):
         self.persistence_path = persistence_path
@@ -28,17 +28,25 @@ class LocalRAGProvider(RAGProvider):
         self.client = None
         self.collection = None
         self.embedding_fn = None
+        self.reranker = None
 
         if HAS_LOCAL_RAG_DEPS:
             try:
                 # Initialize ChromaDB Client
                 self.client = chromadb.PersistentClient(path=self.persistence_path)
 
-                # Initialize Embedding Function (using a lightweight model suitable for CPU)
-                # Using 'all-MiniLM-L6-v2' which is fast and effective for general use
+                # Initialize Embedding Function (bi-encoder for retrieval)
                 self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
                     model_name="all-MiniLM-L6-v2"
                 )
+
+                # Initialize Re-ranker (cross-encoder for precision)
+                # Using a small, fast model for CPU inference
+                try:
+                    self.reranker = CrossEncoder('cross-encoder/ms-marco-TinyBERT-L-2-v2')
+                    logger.info("Local RAG: Re-ranker initialized.")
+                except Exception as e:
+                    logger.warning(f"Local RAG: Could not initialize re-ranker ({e}). Using retrieval only.")
 
                 self._is_configured = True
                 logger.info(f"Local RAG Provider initialized at {self.persistence_path}")
@@ -53,16 +61,11 @@ class LocalRAGProvider(RAGProvider):
         return self._is_configured
 
     def create_or_get_corpus(self, display_name: str) -> Optional[str]:
-        """
-        In ChromaDB, a 'corpus' maps to a 'collection'.
-        We return the collection name as the identifier.
-        """
         if not self.is_configured:
             logger.error("Local RAG Provider not configured.")
             return None
 
         try:
-            # We use get_or_create_collection
             self.collection = self.client.get_or_create_collection(
                 name=display_name,
                 embedding_function=self.embedding_fn
@@ -78,7 +81,6 @@ class LocalRAGProvider(RAGProvider):
             logger.error("Local RAG Provider not configured.")
             return None
 
-        # Ensure we are working with the correct collection
         if not self.collection or self.collection.name != corpus_name:
              self.create_or_get_corpus(corpus_name)
 
@@ -91,9 +93,15 @@ class LocalRAGProvider(RAGProvider):
                 logger.error(f"Failed to extract text from {file_path}: {text_content}")
                 return None
 
-            # Simple chunking strategy (can be improved)
-            # Splitting by paragraphs for simplicity
-            chunks = [c.strip() for c in text_content.split('\n\n') if c.strip()]
+            # Improved Chunking: Split by paragraphs, then ensure chunks aren't too massive
+            raw_chunks = [c.strip() for c in text_content.split('\n\n') if c.strip()]
+            chunks = []
+            for chunk in raw_chunks:
+                if len(chunk) > 1000:
+                    # Naive split for very large paragraphs
+                    chunks.extend([chunk[i:i+1000] for i in range(0, len(chunk), 1000)])
+                else:
+                    chunks.append(chunk)
 
             ids = [f"{display_name}_{i}" for i in range(len(chunks))]
             metadatas = [{"source": display_name, "chunk_index": i} for i in range(len(chunks))]
@@ -115,7 +123,6 @@ class LocalRAGProvider(RAGProvider):
             logger.error("Local RAG Provider not configured.")
             return []
 
-        # Ensure we are working with the correct collection
         if not self.collection or self.collection.name != corpus_name:
              self.create_or_get_corpus(corpus_name)
 
@@ -123,27 +130,44 @@ class LocalRAGProvider(RAGProvider):
              return []
 
         try:
+            # 1. Retrieval (fetch more candidates than needed for re-ranking)
+            initial_k = num_results * 3 if self.reranker else num_results
             results = self.collection.query(
                 query_texts=[query_text],
-                n_results=num_results
+                n_results=initial_k
             )
 
-            # ChromaDB returns lists of lists (one for each query)
-            # We only have one query
             documents = results['documents'][0]
             metadatas = results['metadatas'][0]
 
-            formatted_results = []
+            candidates = []
             for i, doc in enumerate(documents):
                 meta = metadatas[i] if metadatas else {}
-                formatted_results.append({
+                candidates.append({
                     "content": doc,
                     "source_uri": meta.get('source', 'unknown'),
                     "display_name": meta.get('source', 'unknown')
                 })
 
-            logger.info(f"Local RAG query for '{query_text}' returned {len(formatted_results)} results.")
-            return formatted_results
+            # 2. Re-ranking (if enabled)
+            if self.reranker and candidates:
+                pairs = [[query_text, c['content']] for c in candidates]
+                scores = self.reranker.predict(pairs)
+
+                # Attach scores
+                for i, c in enumerate(candidates):
+                    c['score'] = float(scores[i])
+
+                # Sort by score descending
+                candidates.sort(key=lambda x: x['score'], reverse=True)
+
+                logger.info(f"Re-ranked {len(candidates)} candidates.")
+
+            # 3. Limit Results
+            final_results = candidates[:num_results]
+
+            logger.info(f"Local RAG query for '{query_text}' returned {len(final_results)} results.")
+            return final_results
 
         except Exception as e:
             logger.error(f"Error querying local RAG corpus '{corpus_name}': {e}")
