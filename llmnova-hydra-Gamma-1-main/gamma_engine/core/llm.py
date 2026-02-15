@@ -28,21 +28,23 @@ class LLMProvider(LLMProviderInterface):
         self,
         history: List[Dict[str, Any]],
         tools: Optional[List[Any]] = None,
+        tool_choice: Optional[Any] = None,
         temperature: float = 0.0
     ) -> Message:
         redis_client = get_redis_client()
         if not redis_client:
             # Proceed without cache if Redis is not available
             if self.model.startswith("claude-"):
-                return self._chat_anthropic(history, tools, temperature)
+                return self._chat_anthropic(history, tools, tool_choice, temperature)
             else:
-                return self._chat_openai(history, tools, temperature)
+                return self._chat_openai(history, tools, tool_choice, temperature)
 
         # Create a stable cache key
         cache_key_data = {
             "model": self.model,
             "history": history,
             "tools": tools,
+            "tool_choice": tool_choice,
             "temperature": temperature,
         }
         # Use json.dumps with sort_keys=True for a consistent hash
@@ -57,9 +59,9 @@ class LLMProvider(LLMProviderInterface):
 
         # If not cached, call the appropriate LLM
         if self.model.startswith("claude-"):
-            response_message = self._chat_anthropic(history, tools, temperature)
+            response_message = self._chat_anthropic(history, tools, tool_choice, temperature)
         else:
-            response_message = self._chat_openai(history, tools, temperature)
+            response_message = self._chat_openai(history, tools, tool_choice, temperature)
 
         # Cache the new response
         logger.info(f"Caching new LLM response for key: {cache_key}")
@@ -71,6 +73,7 @@ class LLMProvider(LLMProviderInterface):
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         temperature: float = 0.0
     ) -> Message:
         kwargs: Dict[str, Any] = {
@@ -80,7 +83,7 @@ class LLMProvider(LLMProviderInterface):
         }
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
+            kwargs["tool_choice"] = tool_choice if tool_choice else "auto"
 
         try:
             response = self.openai_client.chat.completions.create(**kwargs)
@@ -97,6 +100,7 @@ class LLMProvider(LLMProviderInterface):
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         temperature: float = 0.0
     ) -> Message:
         if not self.anthropic_client:
@@ -121,6 +125,14 @@ class LLMProvider(LLMProviderInterface):
 
         if tools:
             kwargs["tools"] = tools
+            # Basic mapping for Anthropic tool_choice if needed
+            if tool_choice:
+                 # OpenAI 'auto' maps to Anthropic default (omitted or auto)
+                 # OpenAI 'required' (not supported directly in basic generic way without more logic)
+                 # OpenAI 'none' -> don't send tools?
+                 if tool_choice != "auto":
+                     # For now, simplistic handling. Full support requires more complex mapping.
+                     pass
 
         try:
             response = self.anthropic_client.messages.create(**kwargs)

@@ -1,29 +1,26 @@
-
-"""Minimal, clean Agent implementation for import/type-check stability.
-
-This file provides a small, well-typed Agent class that other modules can
-import safely while the full implementation is worked on. It supports
-calling tools which may be implemented synchronously or asynchronously.
+"""
+Robust Agent implementation integrating OpenManus-style autonomous execution loop.
 """
 
-from typing import Any, Callable, Dict, List, Optional
-import inspect
+import asyncio
+import json
+import logging
 import uuid
+import traceback
+from typing import Any, Callable, Dict, List, Optional
 
 from ..interfaces.tool import ToolInterface
 from .memory import EpisodicMemory
 from .planner import Planner
-# Using LLM Message format for internal memory, not messaging.Message
 from ..interfaces.llm_provider import Message
 
+logger = logging.getLogger(__name__)
 
 class Agent:
-    """Lightweight Agent used as a stable placeholder.
+    """
+    Autonomous Agent that executes a think-act loop to solve tasks.
 
-    The goal is to provide the minimal surface other modules expect:
-    - construction with a list of tools
-    - an async ``run`` method that returns a string
-    - a small helper to execute a tool by name supporting sync/async tools
+    Integrates planning, memory, LLM interaction, and tool execution.
     """
 
     def __init__(
@@ -32,6 +29,7 @@ class Agent:
         llm_provider: Optional[Any] = None,
         session_id: Optional[str] = None,
         event_callback: Optional[Callable[..., Any]] = None,
+        max_steps: int = 30
     ) -> None:
         self.session_id = session_id or str(uuid.uuid4())
         self.tools: Dict[str, ToolInterface] = {t.name: t for t in tools}
@@ -39,6 +37,14 @@ class Agent:
         self.llm = llm_provider
         self.memory = EpisodicMemory(session_id=self.session_id)
         self.planner = Planner(llm_provider=self.llm)
+        self.max_steps = max_steps
+        self.system_prompt = (
+            "You are Gamma, an advanced AI assistant capable of solving complex tasks. "
+            "You have access to a variety of tools. Use them wisely. "
+            "Break down problems into steps and execute them one by one. "
+            "If you need to browse the web, use the available browser tools. "
+            "Always explain your reasoning before taking actions."
+        )
 
     @property
     def tool_schemas(self) -> List[Dict[str, Any]]:
@@ -50,33 +56,137 @@ class Agent:
         message = Message(role=role, content=content, tool_calls=None)
         self.memory.append(message.model_dump())
 
-    async def execute_tool(self, name: str, **kwargs: Any) -> Optional[str]:
-        """Execute a named tool. Supports sync and async tool implementations.
+    async def _emit(self, event_type: str, data: Dict[str, Any]):
+        """Helper to emit events if a callback is registered."""
+        if self.event_callback:
+            try:
+                await self.event_callback(event_type, data)
+            except Exception as e:
+                logger.error(f"Error in event callback: {e}")
 
-        Returns the tool output as string when possible, or None if the tool is
-        not found.
-        """
+    async def execute_tool(self, name: str, **kwargs: Any) -> Any:
+        """Execute a named tool."""
         tool = self.tools.get(name)
         if tool is None:
-            return None
+            return f"Error: Tool '{name}' not found."
 
-        result = tool.run(**kwargs)
-        if inspect.isawaitable(result):
-            result = await result
-
-        # Normalize to str when possible
-        if result is None:
-            return None
-        return str(result)
+        try:
+            # Helper to run sync/async
+            if asyncio.iscoroutinefunction(tool.run) or asyncio.iscoroutinefunction(tool.execute):
+                 result = await tool.run(**kwargs)
+            else:
+                 result = tool.run(**kwargs)
+            return result
+        except Exception as e:
+            logger.error(f"Tool execution failed: {e}\n{traceback.format_exc()}")
+            return f"Error executing tool '{name}': {e}"
 
     async def run(self, user_input: str) -> str:
-        """Simple async run entry point used by callers in the codebase.
-
-        This implementation intentionally keeps behavior trivial: it
-        acknowledges the input and returns it. The method exists so that
-        imports and awaitable usage of Agent.run remain correct.
         """
-        # This is a placeholder. The actual run loop is in gamma_server.py
-        if self.event_callback:
-            await self.event_callback("assistant_message", {"content": f"Agent received: {user_input}"})
-        return f"Agent received: {user_input}"
+        Executes the main agent loop: Plan -> Think -> Act -> Repeat.
+        """
+        logger.info(f"Agent {self.session_id} started run with input: {user_input}")
+
+        # 1. Initialize Context
+        self.add_message("user", user_input)
+        # Ensure system prompt is present (simplified check)
+        has_system = any(m.role == "system" for m in self.memory.messages)
+        if not has_system:
+             # Prepend system prompt (a bit hacky with current memory, but works)
+             self.memory.messages.insert(0, Message(role="system", content=self.system_prompt))
+
+        # 2. Planning Phase
+        await self._emit("status", {"content": "planning"})
+        try:
+            plan = await asyncio.to_thread(self.planner.create_plan, user_input)
+            plan_str = "\n".join([f"{step.id}. {step.description}" for step in plan])
+
+            self.add_message("system", f"The initial plan to achieve the goal is:\n{plan_str}")
+            await self._emit("plan", {"content": plan_str})
+        except Exception as e:
+            logger.warning(f"Planning failed: {e}. Proceeding without explicit plan.")
+
+        # 3. Execution Loop
+        await self._emit("status", {"content": "thinking"})
+
+        step_count = 0
+        final_answer = ""
+
+        while step_count < self.max_steps:
+            step_count += 1
+            logger.info(f"Step {step_count}/{self.max_steps}")
+
+            # THINK
+            try:
+                # We need to get context as dicts for the LLM provider
+                context = self.memory.get_context()
+                response = await asyncio.to_thread(
+                    self.llm.chat,
+                    history=context,
+                    tools=self.tool_schemas
+                )
+            except Exception as e:
+                logger.error(f"LLM Chat error: {e}")
+                await self._emit("error", {"content": f"LLM Error: {e}"})
+                break
+
+            self.memory.append(response.model_dump())
+
+            # If plain text response (thought or final answer)
+            if response.content:
+                await self._emit("thought", {"content": response.content})
+
+            # ACT
+            if response.tool_calls:
+                await self._emit("status", {"content": "acting"})
+
+                for tool_call in response.tool_calls:
+                    func_name = tool_call.function.name
+                    args_str = tool_call.function.arguments
+                    tool_call_id = tool_call.id
+
+                    logger.info(f"Executing tool: {func_name} with args: {args_str}")
+                    await self._emit("tool_call", {"tool": func_name, "args": args_str})
+
+                    try:
+                        args = json.loads(args_str)
+                        result = await self.execute_tool(func_name, **args)
+                    except json.JSONDecodeError:
+                        result = f"Error: Invalid JSON arguments for {func_name}"
+                    except Exception as e:
+                        result = f"Error: {e}"
+
+                    result_str = str(result)
+                    logger.info(f"Tool Result ({func_name}): {result_str[:100]}...")
+
+                    # Store result in memory
+                    self.memory.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": result_str,
+                        "name": func_name
+                    })
+
+                    await self._emit("tool_result", {"tool": func_name, "result": result_str})
+
+                    # Special handling for file updates to refresh UI
+                    if "file" in func_name or "write" in func_name:
+                         await self._emit("file_update", {"action": "refresh"})
+
+                # After tools, loop back to THINK
+                continue
+
+            else:
+                # No tools called -> Final Answer (or question to user)
+                final_answer = response.content
+                logger.info("Agent reached final answer/stop condition.")
+                await self._emit("final-answer", {"content": final_answer})
+                break
+
+        if step_count >= self.max_steps:
+             logger.warning("Agent reached maximum steps limit.")
+             await self._emit("error", {"content": "Maximum steps reached without final resolution."})
+
+        self.memory.save_to_file()
+        await self._emit("status", {"content": "ready"})
+        return final_answer

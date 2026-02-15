@@ -47,8 +47,12 @@ class BrowserTool(Tool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["navigate", "click", "type", "screenshot", "get_text", "get_html"],
-                        "description": "The action to perform: navigate, click, type, screenshot, get_text, get_html."
+                        "enum": [
+                            "navigate", "click", "type", "screenshot", "get_text", "get_html",
+                            "scroll_down", "scroll_up", "scroll_to_text", "send_keys",
+                            "select_dropdown_option", "get_dropdown_options"
+                        ],
+                        "description": "The action to perform: navigate, click, type, screenshot, get_text, get_html, scroll_down, scroll_up, scroll_to_text, send_keys, select_dropdown_option, get_dropdown_options."
                     },
                     "url": {
                         "type": "string",
@@ -56,11 +60,19 @@ class BrowserTool(Tool):
                     },
                     "selector": {
                         "type": "string",
-                        "description": "CSS selector for the element to interact with (required for 'click', 'type', 'get_text', 'get_html')."
+                        "description": "CSS selector for the element to interact with (required for 'click', 'type', 'get_text', 'get_html', 'get_dropdown_options')."
                     },
                     "text": {
                         "type": "string",
-                        "description": "Text to type into an element (required for 'type')."
+                        "description": "Text to type, scroll to, or select (required for 'type', 'scroll_to_text', 'select_dropdown_option')."
+                    },
+                    "keys": {
+                        "type": "string",
+                        "description": "Keys to send (required for 'send_keys')."
+                    },
+                    "scroll_amount": {
+                        "type": "integer",
+                        "description": "Pixels to scroll (for 'scroll_down', 'scroll_up')."
                     },
                     "output_path": {
                         "type": "string",
@@ -337,6 +349,71 @@ class BrowserTool(Tool):
             logger.error(f"Error getting HTML from '{selector}': {e}")
             return f"Error getting HTML from '{selector}': {e}"
 
+    def scroll(self, direction: str, scroll_amount: Optional[int] = None, url: Optional[str] = None) -> str:
+        """Scrolls the page up or down."""
+        page = self._ensure_playwright_page(url)
+        if not page:
+            return "Error: Playwright not available or navigation failed."
+
+        try:
+            amount = scroll_amount if scroll_amount is not None else 500
+            if direction == "down":
+                 page.evaluate(f"window.scrollBy(0, {amount});")
+            else:
+                 page.evaluate(f"window.scrollBy(0, -{amount});")
+            return f"Scrolled {direction} by {amount} pixels"
+        except Exception as e:
+            return f"Error scrolling {direction}: {e}"
+
+    def scroll_to_text(self, text: str, url: Optional[str] = None) -> str:
+        """Scrolls to the first occurrence of text."""
+        page = self._ensure_playwright_page(url)
+        if not page:
+            return "Error: Playwright not available or navigation failed."
+
+        try:
+            locator = page.get_by_text(text, exact=False).first
+            locator.scroll_into_view_if_needed()
+            return f"Scrolled to text: '{text}'"
+        except Exception as e:
+            return f"Error scrolling to text '{text}': {e}"
+
+    def send_keys(self, keys: str, url: Optional[str] = None) -> str:
+        """Sends keyboard keys."""
+        page = self._ensure_playwright_page(url)
+        if not page:
+            return "Error: Playwright not available or navigation failed."
+
+        try:
+            page.keyboard.press(keys)
+            return f"Sent keys: {keys}"
+        except Exception as e:
+            return f"Error sending keys: {e}"
+
+    def get_dropdown_options(self, selector: str, url: Optional[str] = None) -> str:
+        """Gets options from a dropdown element."""
+        page = self._ensure_playwright_page(url)
+        if not page:
+             return "Error: Playwright not available or navigation failed."
+
+        try:
+            options = page.eval_on_selector_all(f"{selector} option", "elements => elements.map(e => ({text: e.innerText, value: e.value}))")
+            return f"Dropdown options: {options}"
+        except Exception as e:
+             return f"Error getting dropdown options: {e}"
+
+    def select_dropdown_option(self, selector: str, text: str, url: Optional[str] = None) -> str:
+        """Selects an option from a dropdown by label/text."""
+        page = self._ensure_playwright_page(url)
+        if not page:
+            return "Error: Playwright not available or navigation failed."
+
+        try:
+            page.select_option(selector, label=text)
+            return f"Selected option '{text}' from {selector}"
+        except Exception as e:
+             return f"Error selecting option: {e}"
+
     def execute(self, action: str, **kwargs) -> Any:
         """
         Executes the specified browser action.
@@ -353,6 +430,18 @@ class BrowserTool(Tool):
             return self.get_text(**kwargs)
         elif action == "get_html":
             return self.get_html(**kwargs)
+        elif action == "scroll_down":
+            return self.scroll("down", kwargs.get("scroll_amount"), kwargs.get("url"))
+        elif action == "scroll_up":
+             return self.scroll("up", kwargs.get("scroll_amount"), kwargs.get("url"))
+        elif action == "scroll_to_text":
+             return self.scroll_to_text(kwargs.get("text", ""), kwargs.get("url"))
+        elif action == "send_keys":
+             return self.send_keys(kwargs.get("keys", ""), kwargs.get("url"))
+        elif action == "get_dropdown_options":
+             return self.get_dropdown_options(kwargs.get("selector", ""), kwargs.get("url"))
+        elif action == "select_dropdown_option":
+             return self.select_dropdown_option(kwargs.get("selector", ""), kwargs.get("text", ""), kwargs.get("url"))
         else:
             return f"Error: Unknown browser action '{action}'"
 
