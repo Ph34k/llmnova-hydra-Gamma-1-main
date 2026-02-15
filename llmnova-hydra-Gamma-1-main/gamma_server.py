@@ -16,13 +16,16 @@ from gamma_engine.core.llm import LLMProvider
 from gamma_engine.core.memory import EpisodicMemory
 from gamma_engine.core.reporting import generate_report_pdf
 from gamma_engine.core.logger import logger
-from gamma_engine.core.rag_service import RAGService
+from gamma_engine.core.rag.local import LocalRAGProvider
+from gamma_engine.core.rag.vertex import VertexRAGProvider
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
 from gamma_engine.tools.web_dev import WebDevTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
+from prometheus_fastapi_instrumentator import Instrumentator
+from backend.system_api import router as system_router
 
 load_dotenv()
 
@@ -58,21 +61,37 @@ class ConnectionManager:
 manager = ConnectionManager()
 scheduler = TaskScheduler()
 llm_provider = LLMProvider(model=os.getenv("LLM_MODEL", "gpt-4o"))
-rag_service = RAGService(
-    project_id=os.getenv("GOOGLE_CLOUD_PROJECT"),
-    location=os.getenv("GOOGLE_CLOUD_LOCATION")
-)
+
+# Initialize RAG Provider based on environment variable
+rag_provider_type = os.getenv("RAG_PROVIDER", "vertex").lower()
+rag_service = None
+
+if rag_provider_type == "local":
+    logger.info("Initializing Local RAG Provider...")
+    rag_service = LocalRAGProvider(persistence_path="./chroma_db")
+else:
+    logger.info("Initializing Vertex AI RAG Provider...")
+    rag_service = VertexRAGProvider(
+        project_id=os.getenv("GOOGLE_CLOUD_PROJECT"),
+        location=os.getenv("GOOGLE_CLOUD_LOCATION")
+    )
+
+# Prometheus Metrics
+instrumentator = Instrumentator().instrument(app)
+app.include_router(system_router)
 
 @app.on_event("startup")
 def startup_event():
     scheduler.start()
+    instrumentator.expose(app, include_in_schema=False)
     os.makedirs(FILE_STORAGE_PATH, exist_ok=True)
     if not os.getenv("GAMMA_API_KEY"):
         logger.warning("GAMMA_API_KEY is not set. Server is running in an insecure mode.")
     if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
         logger.warning("Google Search API keys are not set. WebSearchTool will be disabled.")
-    if not rag_service.is_configured:
-        logger.warning("Vertex AI RAG Service is not configured. RAG tools will be disabled.")
+
+    if rag_service and not rag_service.is_configured:
+        logger.warning(f"{rag_provider_type.capitalize()} RAG Service is not configured. RAG tools will be disabled.")
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -121,7 +140,7 @@ def upload_file(session_id: str, file: UploadFile = File(...)):
         logger.info(f"[{session_id}] File uploaded: {file.filename}")
 
         # Upload to RAG service
-        if rag_service.is_configured:
+        if rag_service and rag_service.is_configured:
             corpus_name = rag_service.create_or_get_corpus(f"session-{session_id}-corpus")
             if corpus_name:
                 # In a real scenario, you'd upload the file to GCS first, then pass the GCS URI
