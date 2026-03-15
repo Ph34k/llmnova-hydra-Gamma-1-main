@@ -20,6 +20,7 @@ from gamma_engine.core.rag.local import LocalRAGProvider
 from gamma_engine.core.rag.vertex import VertexRAGProvider
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
+from gamma_engine.tools.editor import StrReplaceEditorTool
 from gamma_engine.tools.web_dev import WebDevTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
@@ -35,6 +36,7 @@ from gamma_engine.core.config import settings
 from gamma_engine.core.health_monitor import HealthMonitor
 from gamma_engine.core.workflow_engine import WorkflowEngine
 from gamma_engine.core.long_term_memory import LongTermMemory
+from gamma_engine.flow.planning import PlanningFlow
 
 load_dotenv()
 
@@ -233,6 +235,7 @@ async def websocket_endpoint(websocket: WebSocket):
         ReadFileTool(base_path=session_dir),
         WriteFileTool(base_path=session_dir),
         DiffFilesTool(base_path=session_dir),
+        StrReplaceEditorTool(base_path=session_dir),
         RunBashTool(),
         WebDevTool(),
         WebSearchTool(),
@@ -241,7 +244,21 @@ async def websocket_endpoint(websocket: WebSocket):
         ModelTrainingTool(trainer=LocalTrainer())
     ]
     
-    agent = Agent(llm_provider=llm_provider, tools=tools, session_id=session_id)
+    async def event_callback(event_type: str, data: dict):
+        """Callback to send agent events to the websocket."""
+        try:
+            message = {"type": event_type}
+            message.update(data)
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Error sending event to websocket: {e}")
+
+    agent = Agent(
+        llm_provider=llm_provider,
+        tools=tools,
+        session_id=session_id,
+        event_callback=event_callback
+    )
     agent.memory.load_from_file()
 
     await websocket.send_json({"type": "session_info", "sessionId": session_id})
@@ -257,51 +274,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             user_input = payload.get("message")
+            mode = payload.get("mode", "agent") # 'agent' or 'planning'
+
             if not user_input:
                 continue
 
-            logger.info(f"[{session_id}] User input: {user_input[:100]}...")
-            await websocket.send_json({"type": "status", "content": "thinking"})
-            agent.add_message("user", user_input)
+            logger.info(f"[{session_id}] User input: {user_input[:100]}... Mode: {mode}")
 
-            await websocket.send_json({"type": "thought", "content": "Creating plan..."})
-            loop = asyncio.get_running_loop()
-            plan = await loop.run_in_executor(None, agent.planner.create_plan, user_input)
-            plan_str = "\n".join([f"{step.id}. {step.description}" for step in plan])
-            agent.add_message("system", f"The plan to achieve the goal is:\n{plan_str}")
-            await websocket.send_json({"type": "plan", "content": plan_str})
-            logger.info(f"[{session_id}] Plan created: {plan_str}")
-
-            response_message = await loop.run_in_executor(None, lambda: agent.llm.chat(agent.memory, agent.tool_schemas))
-            agent.memory.append(response_message.model_dump())
-
-            if response_message.tool_calls:
-                for tool_call in response_message.tool_calls:
-                    func_name = tool_call.function.name
-                    args_str = tool_call.function.arguments
-                    logger.info(f"[{session_id}] Executing tool: {func_name} with args {args_str}")
-                    await websocket.send_json({"type": "tool_call", "tool": func_name, "args": args_str})
-                    try:
-                        args = json.loads(args_str)
-                        result = await loop.run_in_executor(None, lambda: agent.tools[func_name].run(**args))
-                    except Exception as e:
-                        result = f"Error executing tool: {str(e)}"
-                        logger.error(f"[{session_id}] Tool execution error for {func_name}: {e}")
-                    await websocket.send_json({"type": "tool_result", "tool": func_name, "result": str(result)})
-                    agent.memory.append({"role": "tool", "tool_call_id": tool_call.id, "content": str(result)})
-                    if "file" in func_name:
-                         await websocket.send_json({"type": "file_update", "action": "refresh"})
-
-                final_response = agent.llm.chat(agent.memory)
-                agent.memory.append(final_response.model_dump())
-                logger.info(f"[{session_id}] Final response generated after tool calls.")
-                await websocket.send_json({"type": "final-answer", "content": final_response.content})
+            if mode == "planning":
+                # Initialize and execute Planning Flow
+                flow = PlanningFlow(primary_agent=agent)
+                await websocket.send_json({"type": "status", "content": "planning_started"})
+                result = await flow.execute(user_input)
+                await websocket.send_json({"type": "final-answer", "content": result})
             else:
-                logger.info(f"[{session_id}] Direct final response generated.")
-                await websocket.send_json({"type": "final-answer", "content": response_message.content})
+                # Standard Agent Run
+                await agent.run(user_input)
 
-            await websocket.send_json({"type": "status", "content": "ready"})
-            agent.memory.save_to_file()
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected. Session ID: {session_id}")
