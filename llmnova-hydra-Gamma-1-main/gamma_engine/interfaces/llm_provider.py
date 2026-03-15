@@ -46,6 +46,7 @@ class Message(BaseModel):
     
     role: str = Field(..., description="Role of the message sender")
     content: Optional[str] = Field(None, description="Text content of the message")
+    base64_image: Optional[str] = Field(None, description="Base64 encoded image content")
     tool_calls: Optional[List[Any]] = Field(
         None,
         description="List of tool calls requested by the assistant"

@@ -30,6 +30,7 @@ export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps)
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState('disconnected');
+  const [mode, setMode] = useState<'agent' | 'planning'>('agent');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +46,7 @@ export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps)
 
       if (data.type === 'session_info') {
          // Session ID handled by parent
-      } else if (data.type === 'message') {
+      } else if (data.type === 'message' || data.type === 'thought') {
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
       } else if (data.type === 'final-answer') {
         setMessages(prev => [...prev, { role: 'final-answer', content: data.content }]);
@@ -53,6 +54,8 @@ export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps)
          setMessages(prev => [...prev, { role: 'tool-call', content: `Executing ${data.tool}...`, details: data.args }]);
       } else if (data.type === 'tool_result') {
          setMessages(prev => [...prev, { role: 'tool-result', content: `Result from ${data.tool}`, details: data.result }]);
+      } else if (data.type === 'plan') {
+         setMessages(prev => [...prev, { role: 'assistant', content: `📅 New Plan Created:\n${data.content}` }]);
       } else if (data.type === 'status') {
         setStatus(data.content);
       }
@@ -72,7 +75,7 @@ export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps)
   const sendMessage = () => {
     if (!input.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
     setMessages(prev => [...prev, { role: 'user', content: input }]);
-    ws.send(JSON.stringify({ message: input }));
+    ws.send(JSON.stringify({ message: input, mode: mode }));
     setInput('');
   };
 
@@ -242,8 +245,26 @@ export default function NeuralInterface({ ws, sessionId }: NeuralInterfaceProps)
               <Send size={18} />
             </button>
           </div>
+
+          <div className="flex justify-center mt-4 gap-4">
+             <div className="flex items-center bg-neutral-900 rounded-lg p-1 border border-neutral-800">
+                <button
+                    onClick={() => setMode('agent')}
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${mode === 'agent' ? 'bg-cyan-900/50 text-cyan-400 font-bold shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}
+                >
+                    Standard Agent
+                </button>
+                <button
+                    onClick={() => setMode('planning')}
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${mode === 'planning' ? 'bg-purple-900/50 text-purple-400 font-bold shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}
+                >
+                    Planning Flow
+                </button>
+             </div>
+          </div>
+
           <div className="text-center mt-2">
-            <p className="text-xs text-neutral-600">Gamma Engine v1.4 • Autonomous AI Architect</p>
+            <p className="text-xs text-neutral-600">Gamma Engine v1.5 • Autonomous AI Architect</p>
           </div>
         </div>
       </div>
