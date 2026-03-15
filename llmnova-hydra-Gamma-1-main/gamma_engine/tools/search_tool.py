@@ -20,7 +20,7 @@ from .base import Tool
 
 
 class CodeSearchTool(Tool):
-    """Search through code files for specific patterns or text.
+    r"""Search through code files for specific patterns or text.
     
     This tool provides grep-like functionality with support for:
     - Plain text and regex pattern Search

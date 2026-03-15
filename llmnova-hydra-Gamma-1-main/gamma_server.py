@@ -16,7 +16,8 @@ from gamma_engine.core.llm import LLMProvider
 from gamma_engine.core.memory import EpisodicMemory
 from gamma_engine.core.reporting import generate_report_pdf
 from gamma_engine.core.logger import logger
-from gamma_engine.core.rag_service import RAGService
+from gamma_engine.core.rag.local import LocalRAGProvider
+from gamma_engine.core.rag.vertex import VertexRAGProvider
 from gamma_engine.tools.filesystem import ListFilesTool, ReadFileTool, WriteFileTool, DiffFilesTool
 from gamma_engine.tools.terminal import RunBashTool
 from gamma_engine.tools.editor import StrReplaceEditorTool
@@ -24,15 +25,26 @@ from gamma_engine.tools.web_dev import WebDevTool
 from gamma_engine.tools.web_search_tool import WebSearchTool
 from gamma_engine.tools.rag_tool import KnowledgeBaseSearchTool
 from gamma_engine.core.scheduler import TaskScheduler
+from prometheus_fastapi_instrumentator import Instrumentator
+from backend.system_api import router as system_router
+from backend.brain_api import router as brain_router
+import backend.brain_api as brain_api_module
+from gamma_engine.tools.system_tool import SystemStatusTool
+from gamma_engine.tools.training_tool import ModelTrainingTool
+from gamma_engine.core.training.base import LocalTrainer
+from gamma_engine.core.config import settings
+from gamma_engine.core.health_monitor import HealthMonitor
+from gamma_engine.core.workflow_engine import WorkflowEngine
+from gamma_engine.core.long_term_memory import LongTermMemory
 from gamma_engine.flow.planning import PlanningFlow
 
 load_dotenv()
 
-app = FastAPI(title="Gamma Engine API", version="1.6.0")
+app = FastAPI(title="Gamma Engine API", version="2.0.0")
 
 FILE_STORAGE_PATH = "file_storage"
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+allowed_origins = settings.allowed_origins.split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,26 +71,59 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 scheduler = TaskScheduler()
-llm_provider = LLMProvider(model=os.getenv("LLM_MODEL", "gpt-4o"))
-rag_service = RAGService(
-    project_id=os.getenv("GOOGLE_CLOUD_PROJECT"),
-    location=os.getenv("GOOGLE_CLOUD_LOCATION")
+workflow_engine = WorkflowEngine(scheduler)
+# LTM is session-specific usually, but for the API inspector we need a global or shared view.
+# We'll initialize a "system" memory view or require session_id in the API.
+# For MVP dashboard, we use a shared system view.
+global_ltm = LongTermMemory(session_id="system_shared")
+
+llm_provider = LLMProvider(model=settings.llm_model)
+health_monitor = HealthMonitor(
+    interval=settings.health_monitor_interval,
+    cpu_threshold=settings.cpu_alert_threshold,
+    mem_threshold=settings.mem_alert_threshold
 )
+
+# Inject dependencies into brain_api
+brain_api_module.workflow_engine = workflow_engine
+brain_api_module.long_term_memory = global_ltm
+
+# Initialize RAG Provider based on configuration
+rag_provider_type = settings.rag_provider.lower()
+rag_service = None
+
+if rag_provider_type == "local":
+    logger.info("Initializing Local RAG Provider...")
+    rag_service = LocalRAGProvider(persistence_path="./chroma_db")
+else:
+    logger.info("Initializing Vertex AI RAG Provider...")
+    rag_service = VertexRAGProvider(
+        project_id=settings.google_cloud_project,
+        location=settings.google_cloud_location
+    )
+
+# Prometheus Metrics
+instrumentator = Instrumentator().instrument(app)
+app.include_router(system_router)
+app.include_router(brain_router)
 
 @app.on_event("startup")
 def startup_event():
     scheduler.start()
+    health_monitor.start()
+    instrumentator.expose(app, include_in_schema=False)
     os.makedirs(FILE_STORAGE_PATH, exist_ok=True)
-    if not os.getenv("GAMMA_API_KEY"):
+
+    if not settings.gamma_api_key:
         logger.warning("GAMMA_API_KEY is not set. Server is running in an insecure mode.")
-    if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
-        logger.warning("Google Search API keys are not set. WebSearchTool will be disabled.")
-    if not rag_service.is_configured:
-        logger.warning("Vertex AI RAG Service is not configured. RAG tools will be disabled.")
+
+    if rag_service and not rag_service.is_configured:
+        logger.warning(f"{rag_provider_type.capitalize()} RAG Service is not configured. RAG tools will be disabled.")
 
 @app.on_event("shutdown")
 def shutdown_event():
     scheduler.stop()
+    health_monitor.stop()
 
 class FileChangeHandler(FileSystemEventHandler):
     def on_any_event(self, event):
@@ -123,7 +168,7 @@ def upload_file(session_id: str, file: UploadFile = File(...)):
         logger.info(f"[{session_id}] File uploaded: {file.filename}")
 
         # Upload to RAG service
-        if rag_service.is_configured:
+        if rag_service and rag_service.is_configured:
             corpus_name = rag_service.create_or_get_corpus(f"session-{session_id}-corpus")
             if corpus_name:
                 # In a real scenario, you'd upload the file to GCS first, then pass the GCS URI
@@ -194,7 +239,9 @@ async def websocket_endpoint(websocket: WebSocket):
         RunBashTool(),
         WebDevTool(),
         WebSearchTool(),
-        KnowledgeBaseSearchTool(rag_service=rag_service, corpus_display_name=f"session-{session_id}-corpus")
+        KnowledgeBaseSearchTool(rag_service=rag_service, corpus_display_name=f"session-{session_id}-corpus"),
+        SystemStatusTool(),
+        ModelTrainingTool(trainer=LocalTrainer())
     ]
     
     async def event_callback(event_type: str, data: dict):

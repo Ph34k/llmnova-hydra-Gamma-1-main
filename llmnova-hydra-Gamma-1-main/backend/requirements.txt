@@ -1,0 +1,4 @@
+chromadb==0.4.22
+psutil
+prometheus-fastapi-instrumentator
+sentence-transformers

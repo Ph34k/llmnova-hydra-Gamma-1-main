@@ -1,0 +1,7 @@
+{
+  "base_model": "llama-2",
+  "peft_type": "LORA",
+  "r": 8,
+  "lora_alpha": 16,
+  "dataset": "data.csv"
+}

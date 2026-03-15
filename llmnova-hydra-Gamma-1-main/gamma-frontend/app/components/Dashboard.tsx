@@ -28,11 +28,19 @@ export default function Dashboard() {
         try {
             const [sysRes, jobRes, srvRes] = await Promise.all([
                 fetch(`${API_URL}/api/system/status`),
-                fetch(`${API_URL}/api/scheduler/jobs`),
-                fetch(`${API_URL}/api/webdev/servers`)
+                fetch(`${API_URL}/api/scheduler/jobs`).catch(() => ({ ok: false, json: async () => [] })),
+                fetch(`${API_URL}/api/webdev/servers`).catch(() => ({ ok: false, json: async () => [] }))
             ]);
 
-            if (sysRes.ok) setSystem(await sysRes.json());
+            if (sysRes.ok) {
+                 const sysData = await sysRes.json();
+                 // Normalize data structure if needed (e.g., if backend returns nested memory obj)
+                 setSystem({
+                     cpu_percent: sysData.cpu_percent,
+                     memory_percent: sysData.memory?.percent || 0,
+                     status: sysData.status
+                 });
+            }
             if (jobRes.ok) setJobs(await jobRes.json());
             if (srvRes.ok) setServers(await srvRes.json());
         } catch (e) {

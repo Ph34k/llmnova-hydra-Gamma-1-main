@@ -1,0 +1,68 @@
+@startuml
+!theme plain
+
+title Diagrama de Componentes - Gamma Engine (Atual)
+
+actor "Usuário" as user
+actor "Desenvolvedor" as dev
+
+package "Gamma Engine (Backend)" {
+  [FastAPI Server] as api
+  [WebSocket Adapter] as ws
+  [Agent Core] as agent
+  [Task Scheduler] as scheduler
+  [Episodic Memory] as memory
+
+  package "Tools" {
+    [File Tools] as file_tools
+    [Web Tools] as web_tools
+    [RAG Tool] as rag_tool
+    [Bash Tool] as bash_tool
+  }
+}
+
+package "Gamma Frontend" {
+  [React App] as frontend
+  [Monaco Editor] as editor
+  [Terminal View] as terminal
+}
+
+package "Infraestrutura Externa" {
+  cloud "Vertex AI (Google Cloud)" as vertex
+  database "Redis (Memory)" as redis
+  database "File Storage (Local)" as files
+}
+
+' Fluxo Principal
+user --> frontend : Interage
+frontend --> ws : WebSocket (Chat/Status)
+frontend --> api : REST (Upload/Report)
+
+ws --> agent : Envia Mensagem
+agent --> memory : Lê/Escreve Histórico
+agent --> vertex : LLM Inference (Chat)
+
+' Tools
+agent --> file_tools : Manipula Arquivos
+agent --> web_tools : Cria/Testa Web
+agent --> bash_tool : Executa Comandos
+agent --> rag_tool : Busca Contexto
+
+' RAG Flow
+rag_tool --> vertex : Query RAG Corpus
+vertex --> rag_tool : Retorna Contexto
+
+' Scheduler Flow
+scheduler --> agent : Ageda Tarefas
+agent ..> scheduler : Cria Jobs
+
+' Persistência
+memory ..> redis : Persiste Sessão (Opcional)
+memory ..> files : Persiste JSON (Local)
+file_tools --> files : Leitura/Escrita
+
+' Frontend Components
+frontend ..> editor : Edição de Código
+frontend ..> terminal : Exibição de Logs
+
+@enduml

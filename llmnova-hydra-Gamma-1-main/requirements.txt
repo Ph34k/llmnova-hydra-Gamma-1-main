@@ -27,3 +27,9 @@ google-api-python-client
 google-cloud-aiplatform
 google-cloud-storage
 pypdf
+chromadb==0.4.22
+sentence-transformers==2.5.1
+psutil
+prometheus-fastapi-instrumentator
+pydantic-settings
+networkx
